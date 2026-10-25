@@ -1,0 +1,8 @@
+.rastreios-grade { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.rastreios-topo { justify-content: space-between; align-items: flex-start; }
+.rastreios-dados { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+.rastreios-dados dt { color: var(--muted); }
+.rastreios-dados dd { margin: 0; color: var(--text-2); text-align: right; overflow-wrap: anywhere; }
+.rastreios-avisos { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-2); }
+.rastreios-avisos span { color: var(--muted); }
+.rastreios-acoes { display: flex; flex-wrap: wrap; gap: 6px; }

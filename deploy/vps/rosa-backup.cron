@@ -1,0 +1,4 @@
+# Backup diario do atendimento Rosa Selvagem (instalado pelo instalar.sh em /etc/cron.d/rosa-backup).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 3 * * * root __DIR__/backup.sh >> __ROSA_DIR__/logs/backup.log 2>&1

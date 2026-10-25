@@ -1,0 +1,64 @@
+/* Helpdesk (modulos/helpdesk.js). Só classes com o prefixo hd-. */
+.hd-in { max-width: 1440px; }
+.hd-ferramentas { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 20px 0 14px; }
+.hd-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.hd-seg button { height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--text-2); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.hd-seg button.on { background: var(--surface-3); color: var(--text); }
+.hd-ferramentas select, .hd-busca { height: 38px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); outline: none; }
+.hd-busca { flex: 1; min-width: 160px; }
+.hd-busca:focus, .hd-ferramentas select:focus { border-color: var(--text-2); }
+
+.hd-quadro { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.hd-col { display: flex; flex-direction: column; gap: 8px; min-height: 160px; padding: 10px; border-radius: 14px; background: var(--painel); border: 1px solid var(--border); transition: border-color .12s, background .12s; }
+.hd-col.alvo { border-color: var(--text-2); background: var(--surface); }
+.hd-col-head { display: flex; align-items: center; gap: 8px; padding: 4px 4px 6px; font-size: 13px; font-weight: 600; }
+.hd-col-head .n { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 500; }
+.hd-col-vazia { padding: 18px 8px; text-align: center; color: var(--muted); font-size: 12.5px; border: 1px dashed var(--border-strong); border-radius: 10px; }
+
+.hd-card { position: relative; display: flex; flex-direction: column; gap: 7px; padding: 12px; border-radius: 11px; background: var(--surface); border: 1px solid var(--border); cursor: pointer; }
+.hd-card:hover { border-color: var(--border-strong); }
+.hd-card:focus-visible { outline: 2px solid var(--text-2); outline-offset: 1px; }
+.hd-card.arrastando { opacity: .45; }
+.hd-card.atrasado { border-color: rgba(248, 113, 113, .45); }
+.hd-card-top { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.hd-proto { font: 600 11.5px ui-monospace, Consolas, monospace; color: var(--muted); letter-spacing: .02em; }
+.hd-card-top .hd-mover { margin-left: auto; height: 26px; padding: 0 8px; font-size: 12px; }
+.hd-titulo { font-size: 13.5px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.hd-cli { font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.hd-card-pe { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hd-card-pe .av { margin-left: auto; }
+.hd-prazo { font-size: 12px; color: var(--muted); }
+.hd-atrasado { color: var(--bad); font-weight: 600; }
+.hd-menu { position: absolute; top: 38px; right: 8px; z-index: 20; width: 210px; }
+
+.hd-tabs { display: none; gap: 6px; overflow: hidden; flex-wrap: wrap; margin-bottom: 12px; }
+.hd-tabs button { height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.hd-tabs button.on { background: var(--branco); color: var(--tinta); border-color: var(--branco); }
+
+/* gaveta do chamado */
+.hd-grade2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.hd-textarea { min-height: 84px; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); outline: none; resize: vertical; font: inherit; font-size: 13.5px; }
+.hd-textarea:focus { border-color: var(--text-2); }
+.hd-conv { display: flex; align-items: center; gap: 8px; }
+.hd-conv select { flex: 1; min-width: 0; }
+.hd-faixa { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); }
+.hd-notas, .hd-hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hd-notas li { padding: 10px 12px; border-radius: 10px; background: var(--surface); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hd-notas small, .hd-hist small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+.hd-hist li { font-size: 12.5px; color: var(--text-2); padding-left: 12px; border-left: 2px solid var(--border-strong); }
+
+@media (max-width: 1100px) {
+  .hd-quadro { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .hd-tabs { display: flex; }
+  .hd-quadro { grid-template-columns: minmax(0, 1fr); }
+  .hd-col:not(.movel-on) { display: none; }
+  .hd-col-head { display: none; }
+  .hd-grade2 { grid-template-columns: minmax(0, 1fr); }
+  .hd-in .pag-head { flex-wrap: wrap; }
+  .hd-acao { width: 100%; }
+  .hd-acao .btn { width: 100%; justify-content: center; }
+  .hd-ferramentas select { flex: 1 1 140px; min-width: 0; }
+  .hd-busca { flex: 1 1 100%; }
+}

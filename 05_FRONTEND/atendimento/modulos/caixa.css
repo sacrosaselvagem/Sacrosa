@@ -1,0 +1,67 @@
+/* Caixa de entrada (modulos/caixa.js). Só classes .caixa-*; o resto vem de atendimento.css. */
+.caixa .pag-head .btn .ico { width: 16px; height: 16px; }
+.caixa-demo { margin-bottom: 8px; }
+
+.caixa-secao { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.caixa-secao .ico { width: 16px; height: 16px; }
+.caixa-secao-avisos { justify-content: space-between; }
+.caixa-n { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--surface-2); color: var(--text); }
+.caixa-n.alerta { background: var(--bad-soft); color: var(--bad); }
+
+.caixa-ok { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 12px; background: var(--painel); border: 1px solid var(--border); color: var(--text-2); font-size: 13px; }
+.caixa-ok .ico { color: var(--ok); }
+
+/* pedidos de ajuda da IA */
+.caixa-ajuda, .caixa-avisos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--painel); }
+.caixa-ajuda li + li, .caixa-avisos li + li { border-top: 1px solid var(--border); }
+.caixa-ajuda-item, .caixa-aviso {
+  display: grid; width: 100%; gap: 12px; padding: 14px 16px; border: 0; background: none; text-align: left; color: var(--text); align-items: start;
+}
+.caixa-ajuda-item { grid-template-columns: 40px minmax(0, 1fr) auto; }
+.caixa-ajuda-item:hover, .caixa-aviso:hover { background: var(--surface); }
+.caixa-ajuda-txt, .caixa-aviso-txt { display: flex; flex-direction: column; gap: 5px; min-width: 0; align-items: flex-start; }
+.caixa-linha1 { display: flex; align-items: baseline; gap: 10px; width: 100%; min-width: 0; flex-wrap: wrap; }
+.caixa-linha1 strong { font-size: 14px; font-weight: 600; }
+.caixa-canal { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
+.caixa-canal .ico { width: 14px; height: 14px; }
+.caixa-resumo { font-size: 13px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.caixa-lado { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.caixa-abrir { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.caixa-abrir .ico { width: 14px; height: 14px; }
+.caixa-ajuda-item:hover .caixa-abrir { color: var(--text); }
+
+/* filtros Todas / Não lidas */
+.caixa-filtros { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface); }
+.caixa-filtros button { border: 0; background: none; padding: 5px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.caixa-filtros button.on { background: var(--surface-3); color: var(--text); }
+.caixa-filtros b { font-weight: 700; color: var(--text); }
+
+/* avisos */
+.caixa-aviso { grid-template-columns: 36px minmax(0, 1fr); }
+.caixa-aviso-ico { position: relative; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--text); }
+.caixa-aviso-ico .ico { width: 18px; height: 18px; }
+.caixa-ponto { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; background: var(--branco); border: 2px solid var(--painel); }
+.caixa-aviso .caixa-linha1 { justify-content: space-between; flex-wrap: nowrap; }
+.caixa-aviso .caixa-linha1 strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.caixa-aviso .tempo { flex: none; }
+.caixa-quem { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); min-width: 0; max-width: 100%; }
+.caixa-quem .ico { width: 14px; height: 14px; color: var(--muted); }
+.caixa-quem span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.caixa-texto { font-size: 13px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.caixa-aviso.lida strong { font-weight: 500; color: var(--text-2); }
+.caixa-aviso.lida .caixa-texto, .caixa-aviso.lida .caixa-quem { color: var(--muted); }
+.caixa-aviso.lida .caixa-aviso-ico { background: var(--surface); color: var(--muted); }
+
+.caixa-mais { display: flex; justify-content: center; padding: 14px 0 0; }
+.caixa-carregando { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+.caixa-vazio { border: 1px dashed var(--border-strong); border-radius: 14px; padding: 40px 20px; }
+.caixa-vazio-ico { width: 28px; height: 28px; color: var(--muted); margin-bottom: 4px; }
+.caixa-vazio span { max-width: 46ch; }
+
+@media (max-width: 700px) {
+  .caixa .pag-head { flex-wrap: wrap; }
+  .caixa .pag-head > [data-cx-todos] { width: 100%; }
+  .caixa-ajuda-item { grid-template-columns: 40px minmax(0, 1fr); }
+  .caixa-lado { grid-column: 2; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; }
+  .caixa-ajuda-item, .caixa-aviso { padding: 12px; }
+}

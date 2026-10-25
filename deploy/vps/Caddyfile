@@ -1,0 +1,35 @@
+# Caddy: HTTPS automatico (Let's Encrypt) para os dois enderecos. Os nomes vem do .env.
+{
+	email {$ACME_EMAIL}
+}
+
+(seguranca) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	log {
+		output stdout
+		format console
+	}
+}
+
+# Nossa tela de atendimento (equipe do SAC).
+{$ATENDIMENTO_HOST} {
+	import seguranca
+	header X-Frame-Options "SAMEORIGIN"
+	reverse_proxy atendimento:8790
+}
+
+# Chatwoot: painel, webhooks da Meta/WhatsApp/Telegram, widget do site e central de ajuda.
+# Sem X-Frame-Options aqui: o widget do site roda dentro de um iframe em outro dominio.
+{$CHAT_HOST} {
+	import seguranca
+	request_body {
+		max_size 100MB
+	}
+	reverse_proxy rails:3000
+}

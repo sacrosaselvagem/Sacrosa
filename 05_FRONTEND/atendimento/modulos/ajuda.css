@@ -1,0 +1,46 @@
+/* Central de Ajuda (modulos/ajuda.js). Só classes com o prefixo ajuda-. */
+.ajuda-acoes { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ajuda-portal { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 16px 18px; border-radius: 14px; background: var(--painel); border: 1px solid var(--border); }
+.ajuda-portal .ajuda-portal-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ajuda-portal strong { font-size: 14.5px; }
+.ajuda-link { font: 12.5px/1.4 ui-monospace, Consolas, monospace; color: var(--text-2); word-break: break-all; text-decoration: none; }
+.ajuda-link:hover { color: var(--text); text-decoration: underline; }
+.ajuda-portal-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.ajuda-ferramentas { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+.ajuda-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.ajuda-seg button { height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--text-2); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.ajuda-seg button.on { background: var(--surface-3); color: var(--text); }
+.ajuda-busca { flex: 1; min-width: 180px; height: 38px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); outline: none; }
+.ajuda-busca:focus { border-color: var(--text-2); }
+.ajuda-lista { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid var(--border); background: var(--painel); overflow: hidden; }
+.ajuda-item { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--border); }
+.ajuda-item:first-child { border-top: 0; }
+.ajuda-item-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ajuda-item-titulo { font-weight: 600; font-size: 14px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: var(--text); overflow-wrap: anywhere; }
+.ajuda-item-titulo:hover { text-decoration: underline; }
+.ajuda-item-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.ajuda-item-acoes { display: flex; gap: 6px; flex-shrink: 0; }
+.ajuda-texto { min-height: 260px; padding: 12px; border-radius: 9px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); outline: none; resize: vertical; font: 13.5px/1.55 inherit; font-family: inherit; }
+.ajuda-texto:focus { border-color: var(--text-2); }
+.ajuda-sit { display: flex; gap: 8px; flex-wrap: wrap; }
+.ajuda-sit label { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border-strong); font-weight: 500; font-size: 13px; cursor: pointer; flex: 1; min-width: 140px; }
+.ajuda-sit label:has(input:checked) { border-color: var(--text); background: var(--surface-2); }
+.ajuda-sit small { display: block; font-weight: 400; color: var(--muted); }
+.ajuda-pe-esq { margin-right: auto; }
+.ajuda-prop { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
+.ajuda-prop-top { display: flex; align-items: flex-start; gap: 10px; }
+.ajuda-prop-top input { margin-top: 3px; width: 16px; height: 16px; accent-color: #fff; flex-shrink: 0; }
+.ajuda-prop-top label { flex: 1; min-width: 0; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.ajuda-prop-top strong { font-size: 14px; }
+.ajuda-prop details summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); }
+.ajuda-prop pre { margin: 8px 0 0; white-space: pre-wrap; font: 12.5px/1.5 inherit; font-family: inherit; color: var(--text-2); }
+.ajuda-carregando { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: 13.5px; }
+.ajuda-roda { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--text); animation: ajuda-gira .8s linear infinite; }
+@keyframes ajuda-gira { to { transform: rotate(360deg); } }
+@media (max-width: 760px) {
+  .ajuda-in .pag-head { flex-wrap: wrap; }
+  .ajuda-acoes { width: 100%; justify-content: stretch; }
+  .ajuda-acoes .btn { flex: 1; }
+  .ajuda-item { flex-wrap: wrap; }
+  .ajuda-item-acoes { width: 100%; justify-content: flex-end; }
+}

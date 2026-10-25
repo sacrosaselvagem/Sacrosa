@@ -1,0 +1,80 @@
+/* Contatos (modulos/contatos.js). Só classes .contatos-*; o resto vem de atendimento.css. */
+.pag-in.contatos { max-width: 1240px; }
+.contatos .pag-head .btn .ico { width: 16px; height: 16px; }
+.contatos-demo { margin-bottom: 16px; }
+
+.contatos-split { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.contatos-lista { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.contatos-busca { background: var(--painel); border: 1px solid var(--border); }
+
+.contatos-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.contatos-chips:empty { display: none; }
+.contatos-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500; }
+.contatos-chip .ico { width: 14px; height: 14px; }
+.contatos-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.contatos-chip.on { background: var(--branco); color: var(--tinta); border-color: var(--branco); }
+
+.contatos-itens { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--painel); }
+.contatos-itens li + li { border-top: 1px solid var(--border); }
+.contatos-item { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 12px 16px; border: 0; background: none; text-align: left; color: var(--text); }
+.contatos-item:hover { background: var(--surface); }
+.contatos-item.on { background: var(--surface-2); }
+.contatos-item-txt { display: flex; flex-direction: column; min-width: 0; }
+.contatos-item-txt strong { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.contatos-item-txt span { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.contatos-item-lado { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.contatos-canais { display: flex; gap: 4px; color: var(--text-2); }
+.contatos-canais .ico { width: 15px; height: 15px; }
+.contatos-mais { display: flex; justify-content: center; padding-top: 4px; }
+.contatos-carregando { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+.contatos-vazio { border: 1px dashed var(--border-strong); border-radius: 14px; }
+.contatos-vazio span { max-width: 44ch; }
+
+/* ficha */
+.contatos-ficha { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--painel); min-width: 0; }
+.contatos-nada { padding: 48px 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.contatos-nada strong { color: var(--text); font-size: 15px; }
+.contatos-nada-ico { width: 28px; height: 28px; margin-bottom: 4px; }
+.contatos-ficha-topo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 18px; }
+.contatos-ficha-topo .contatos-voltar { display: none; }
+.contatos-ficha-nome { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.contatos-ficha-nome strong { font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+.contatos-ficha-nome span { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.contatos-ficha-nome .ico { width: 14px; height: 14px; }
+.contatos-ficha-canal { font-style: normal; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.contatos-ficha-canal + .contatos-ficha-canal::before { content: "·"; margin-right: 1px; }
+.contatos-ficha-topo .btn .ico { width: 14px; height: 14px; }
+
+.contatos-convs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.contatos-conv { padding: 12px; border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+.contatos-conv-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.contatos-conv-canal { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contatos-conv-canal .ico { width: 14px; height: 14px; }
+.contatos-conv-txt { font-size: 13px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.contatos-conv-pe { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.contatos-conv-pe .chip { white-space: normal; height: auto; min-height: 22px; padding: 2px 8px; }
+.contatos-conv-pe .chip .ico { width: 12px; height: 12px; }
+.contatos-conv .btn { margin-left: auto; }
+
+.contatos-notas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.contatos-notas li { padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); }
+.contatos-notas p { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.contatos-notas span { font-size: 12px; color: var(--muted); }
+.contatos-nota-campo textarea { min-height: 64px; resize: vertical; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); outline: none; }
+.contatos-nota-campo textarea:focus { border-color: var(--text-2); }
+
+@media (max-width: 1100px) {
+  .contatos-split { grid-template-columns: minmax(0, 1fr) 340px; }
+}
+@media (max-width: 980px) {
+  .contatos-split { grid-template-columns: minmax(0, 1fr); }
+  .contatos-split[data-view="lista"] .contatos-ficha { display: none; }
+  .contatos-split[data-view="ficha"] .contatos-lista { display: none; }
+  .contatos-ficha { position: static; max-height: none; }
+  .contatos-ficha-topo { grid-template-columns: auto auto minmax(0, 1fr); padding: 14px; }
+  .contatos-ficha-topo .contatos-voltar { display: inline-flex; }
+  .contatos-ficha-topo > [data-ct-editar] { grid-column: 1 / -1; justify-self: start; }
+  .contatos .pag-head { flex-wrap: wrap; }
+  .contatos .pag-head > [data-ct-novo] { width: 100%; }
+  .contatos-item { padding: 12px; }
+}

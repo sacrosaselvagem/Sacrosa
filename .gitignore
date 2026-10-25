@@ -1,0 +1,29 @@
+# Repositório do atendimento (rosasac). Entra só o SaaS de atendimento e o pacote da VPS.
+# O resto do RosaSelvagemOS (painel, motores, logs, configurações com tokens) fica de fora.
+/*
+!/.gitignore
+!/README.md
+
+!/05_FRONTEND/
+/05_FRONTEND/*
+!/05_FRONTEND/atendimento/
+
+!/06_BACKEND/
+/06_BACKEND/*
+!/06_BACKEND/atendimento/
+
+!/deploy/
+!/09_DOCUMENTATION/
+/09_DOCUMENTATION/*
+!/09_DOCUMENTATION/atendimento-chatwoot.md
+!/09_DOCUMENTATION/atendimento-modulos.md
+
+# nunca: segredos, dados e lixo
+.env
+*.env
+!.env.exemplo
+**/credenciais*
+**/node_modules/
+**/__pycache__/
+*.log
+*.bak

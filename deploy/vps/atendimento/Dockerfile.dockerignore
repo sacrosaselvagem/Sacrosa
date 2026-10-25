@@ -1,0 +1,6 @@
+# Entra no build so o que a imagem precisa. Todo o resto (00_CORE com tokens, 07_LOGS, deploy...) fica fora.
+*
+!05_FRONTEND/atendimento/**
+!06_BACKEND/atendimento/**
+**/*.log
+**/node_modules

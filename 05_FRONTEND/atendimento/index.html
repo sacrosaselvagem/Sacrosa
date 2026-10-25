@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Atendimento · Rosa Selvagem</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="atendimento.css">
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- Menu da esquerda: filas, equipe e integrações -->
+    <aside class="menu-lateral" aria-label="Menu">
+      <a class="marca" href="http://localhost:8787/#/inicio" title="Voltar para a Central dos Agentes">
+        <span class="marca-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 2c1.7 2.2 1.9 4.3 1 6.2 2-1 4.2-1 6.1.4-1.3 2-3.2 3-5.3 3 1.9 1.3 2.9 3.2 2.8 5.6-2.4.1-4.2-.9-5.5-2.6-.6 2-2.1 3.6-4.4 4.4-.6-2.3 0-4.4 1.6-6-2.1.3-4.1-.4-5.6-2.1 1.8-1.4 3.9-1.8 6-1.1C7.5 6.6 9.1 4 12 2Z"/></svg>
+        </span>
+        Atendimento
+        <span class="modo-tag" id="modo-tag" hidden>Demonstração</span>
+      </a>
+
+      <nav id="menu-principal" class="menu-principal" aria-label="Menu"></nav>
+
+      <div class="eu" id="eu"></div>
+    </aside>
+
+    <!-- Conversas -->
+    <main class="pagina conversas" id="conversas" data-view="lista">
+      <section class="lista" aria-label="Lista de conversas">
+        <header class="lista-head">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <button class="btn icone fantasma abrir-menu" data-acao="menu-lateral" aria-label="Abrir menu">
+              <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+            </button>
+            <div><h1 id="fila-titulo">Minhas conversas</h1><p id="fila-desc"></p></div>
+          </div>
+          <div class="filas-movel" id="filas-movel"></div>
+          <label class="busca">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="busca" type="search" placeholder="Buscar nome, pedido ou mensagem" autocomplete="off" aria-label="Buscar">
+          </label>
+          <div class="filtros">
+            <select id="filtro-marca" aria-label="Marca">
+              <option value="todas">Todas as marcas</option>
+              <option value="rosa">Rosa Selvagem</option>
+              <option value="beyoung">Beyoung</option>
+            </select>
+          </div>
+          <div class="filtros-ativos" id="filtros-ativos" hidden></div>
+        </header>
+        <ul class="convs" id="convs" aria-label="Conversas"></ul>
+      </section>
+      <section class="chat" id="chat" aria-label="Conversa aberta"></section>
+      <aside class="ctx" id="ctx" aria-label="Dados da cliente"></aside>
+    </main>
+
+    <!-- Integrações e Equipe -->
+    <main class="pagina pag" id="pag-integracoes" hidden></main>
+    <main class="pagina pag" id="pag-equipe" hidden></main>
+    <main class="pagina pag" id="pag-usuarios" hidden></main>
+  </div>
+
+  <!-- Entrar -->
+  <div class="login" id="login" hidden>
+    <form class="login-caixa" id="login-form">
+      <span class="marca-ico login-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2c1.7 2.2 1.9 4.3 1 6.2 2-1 4.2-1 6.1.4-1.3 2-3.2 3-5.3 3 1.9 1.3 2.9 3.2 2.8 5.6-2.4.1-4.2-.9-5.5-2.6-.6 2-2.1 3.6-4.4 4.4-.6-2.3 0-4.4 1.6-6-2.1.3-4.1-.4-5.6-2.1 1.8-1.4 3.9-1.8 6-1.1C7.5 6.6 9.1 4 12 2Z"/></svg>
+      </span>
+      <h1>Atendimento</h1>
+      <p class="muted">Entre com o e-mail e a senha que você recebeu.</p>
+      <div class="campo"><label for="login-email">E-mail</label><input id="login-email" type="email" autocomplete="username" required placeholder="voce@rosaselvagemoficial.com.br"></div>
+      <div class="campo"><label for="login-senha">Senha</label><input id="login-senha" type="password" autocomplete="current-password" required></div>
+      <div id="login-erro"></div>
+      <button class="btn prim" type="submit" style="height:42px">Entrar</button>
+      <p class="muted" style="font-size:12.5px">Esqueceu a senha? Peça para a dona gerar uma nova em Usuários.</p>
+    </form>
+  </div>
+
+  <div id="gaveta"></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="atendimento.js"></script>
+  <script src="integracoes.js"></script>
+  <script src="usuarios.js"></script>
+  <!-- seções do menu (cada uma se registra com registrarPagina) -->
+  <script src="modulos/caixa.js"></script>
+  <script src="modulos/capitao.js"></script>
+  <script src="modulos/rosa.js"></script>
+  <script src="modulos/simulador.js"></script>
+  <script src="modulos/rastreios.js"></script>
+  <script src="modulos/comentarios.js"></script>
+  <script src="modulos/contatos.js"></script>
+  <script src="modulos/relatorios.js"></script>
+  <script src="modulos/campanhas.js"></script>
+  <script src="modulos/ajuda.js"></script>
+  <script src="modulos/helpdesk.js"></script>
+  <script src="modulos/configuracoes.js"></script>
+</body>
+</html>

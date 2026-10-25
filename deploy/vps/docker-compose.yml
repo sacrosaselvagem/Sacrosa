@@ -1,0 +1,199 @@
+# Atendimento Rosa Selvagem na VPS (Ubuntu 24.04 + Docker).
+# Chatwoot Community (rails + sidekiq + postgres + redis), o servico de atendimento (Node) e o Caddy (HTTPS automatico).
+# So o Caddy abre portas para a internet (80 e 443). O resto conversa pela rede interna "rosa".
+#
+#   cd /opt/rosa/codigo/deploy/vps && docker compose up -d
+#
+# Variaveis: .env nesta pasta (modelo em .env.exemplo; o instalar.sh cria e preenche os segredos).
+# Pastas da maquina: ${ROSA_DIR} (padrao /opt/rosa): config/, logs/, dados/cerebro, dados/motor, backups/.
+name: rosa
+
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+# Variaveis do Chatwoot: so as que ele precisa (a chave da Anthropic nao entra aqui).
+x-chatwoot-env: &chatwoot-env
+  NODE_ENV: production
+  RAILS_ENV: production
+  INSTALLATION_ENV: docker
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?defina SECRET_KEY_BASE no .env}
+  FRONTEND_URL: https://${CHAT_HOST:?defina CHAT_HOST no .env}
+  # O Caddy cuida do HTTPS e manda http para https; o servico de atendimento fala com http://rails:3000 por dentro.
+  FORCE_SSL: 'false'
+  ENABLE_ACCOUNT_SIGNUP: ${ENABLE_ACCOUNT_SIGNUP:-false}
+  DEFAULT_LOCALE: pt_BR
+  TZ: America/Sao_Paulo
+  POSTGRES_HOST: postgres
+  POSTGRES_USERNAME: postgres
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+  POSTGRES_DATABASE: chatwoot
+  REDIS_URL: redis://redis:6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}
+  RAILS_MAX_THREADS: '5'
+  SIDEKIQ_CONCURRENCY: '10'
+  RAILS_LOG_TO_STDOUT: 'true'
+  LOG_LEVEL: info
+  ACTIVE_STORAGE_SERVICE: local
+  ENABLE_PUSH_RELAY_SERVER: 'false'
+  MAILER_SENDER_EMAIL: ${MAILER_SENDER_EMAIL:-Rosa Selvagem <nao-responda@rosaselvagemoficial.com.br>}
+  SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_DOMAIN: ${SMTP_DOMAIN:-}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-login}
+  SMTP_ENABLE_STARTTLS_AUTO: ${SMTP_ENABLE_STARTTLS_AUTO:-true}
+  SMTP_OPENSSL_VERIFY_MODE: ${SMTP_OPENSSL_VERIFY_MODE:-peer}
+  # Messenger e Instagram (pelo app da Meta). O WhatsApp Cloud API e configurado em cada caixa, nao aqui.
+  FB_APP_ID: ${FB_APP_ID:-}
+  FB_APP_SECRET: ${FB_APP_SECRET:-}
+  FB_VERIFY_TOKEN: ${FB_VERIFY_TOKEN:-}
+  IG_VERIFY_TOKEN: ${IG_VERIFY_TOKEN:-}
+  FACEBOOK_API_VERSION: ${FACEBOOK_API_VERSION:-v22.0}
+  INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+  INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+  INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-}
+  INSTAGRAM_API_VERSION: ${INSTAGRAM_API_VERSION:-v22.0}
+
+x-chatwoot: &chatwoot
+  image: chatwoot/chatwoot:v4.19.0-ce
+  restart: unless-stopped
+  environment: *chatwoot-env
+  volumes:
+    - storage_data:/app/storage
+    - ./scripts:/rosa:ro
+  networks: [rosa]
+  logging: *logs
+
+services:
+  rails:
+    <<: *chatwoot
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    entrypoint: docker/entrypoints/rails.sh
+    command: ['bundle', 'exec', 'rails', 's', '-p', '3000', '-b', '0.0.0.0']
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3000/api || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  sidekiq:
+    <<: *chatwoot
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: ['bundle', 'exec', 'sidekiq', '-C', 'config/sidekiq.yml']
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep -f sidekiq >/dev/null || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatwoot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      TZ: America/Sao_Paulo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [rosa]
+    logging: *logs
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d chatwoot']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['sh', '-c', 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}
+    volumes:
+      - redis_data:/data
+    networks: [rosa]
+    logging: *logs
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Nossa tela e a IA do SAC (06_BACKEND/atendimento). Le e grava:
+  #   ${ROSA_DIR}/config  -> 00_CORE/Configuration (chatwoot.json, niveis, sessoes...)
+  #   ${ROSA_DIR}/logs    -> 07_LOGS (registro da IA, chamados, comentarios)
+  #   ${ROSA_DIR}/dados   -> /dados (cerebro/ e motor/, enviados do PC pelo sincronizar-cerebro.ps1)
+  atendimento:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/atendimento/Dockerfile
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+    image: rosa-atendimento:latest
+    restart: unless-stopped
+    depends_on:
+      rails: { condition: service_started }
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_BIN: claude
+      RS_CEREBRO: /dados/cerebro
+      RS_MOTOR: /dados/motor
+      RS_HOST: 0.0.0.0
+      TZ: America/Sao_Paulo
+    volumes:
+      - ${ROSA_DIR:-/opt/rosa}/config:/app/00_CORE/Configuration
+      - ${ROSA_DIR:-/opt/rosa}/logs:/app/07_LOGS
+      - ${ROSA_DIR:-/opt/rosa}/dados:/dados
+    networks: [rosa]
+    logging: *logs
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8790/atendimento/index.html').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on: [rails, atendimento]
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      ATENDIMENTO_HOST: ${ATENDIMENTO_HOST:?defina ATENDIMENTO_HOST no .env}
+      CHAT_HOST: ${CHAT_HOST:?defina CHAT_HOST no .env}
+      ACME_EMAIL: ${ACME_EMAIL:?defina ACME_EMAIL no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [rosa]
+    logging: *logs
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  rosa:
+
+volumes:
+  storage_data:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
