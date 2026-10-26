@@ -62,7 +62,12 @@ const MENU = ['visao', 'caixa', 'conversas', 'rosa', 'simulador', 'rastreios', '
 const DENTRO_DE_CONFIG = ['configuracoes', 'capitao', 'integracoes', 'usuarios', 'equipe'];
 
 let MEU_NIVEL = 'dona';
-const podeVer = id => id === 'conversas' || (MODULOS[id] && MODULOS[id].niveis.includes(MEU_NIVEL));
+// acessos de quem está logada (vêm do servidor em /eu; a dona tem todos). O servidor também barra: aqui só esconde.
+let MINHAS_PERMS = null;
+const podeAcesso = perm => MEU_NIVEL === 'dona' || !MINHAS_PERMS || MINHAS_PERMS.has(perm);
+// páginas que dependem de um acesso que a dona liga e desliga por nível (Usuários > Acessos por nível)
+const PERM_PAGINA = { relatorios: 'relatorios', campanhas: 'campanhas', capitao: 'treinar_ia', simulador: 'treinar_ia', ajuda: 'base_conhecimento', configuracoes: 'configuracoes' };
+const podeVer = id => id === 'conversas' || (!!MODULOS[id] && (PERM_PAGINA[id] && MEU_NIVEL !== 'dona' ? podeAcesso(PERM_PAGINA[id]) : MODULOS[id].niveis.includes(MEU_NIVEL)));
 
 // o elemento <main> de cada página (criado na primeira vez)
 function pagEl(id) {
@@ -539,7 +544,8 @@ function desenharChat() {
 
 function renderMenu(c) {
   const linhas = ['<div class="titulo">Passar para</div>'];
-  Object.entries(EQUIPE).filter(([id]) => id !== c.dono).forEach(([id, p]) => {
+  // sem o acesso "passar conversa", só aparece ela mesma (assumir)
+  Object.entries(EQUIPE).filter(([id]) => id !== c.dono && (id === EU || podeAcesso('passar_conversas'))).forEach(([id, p]) => {
     const st = id === EU ? estado.eu : p.status;
     linhas.push(`<button data-passar="${id}">${avatar(id, '', st)}<span>${id === EU ? 'Mim' : esc(p.nome)}</span><span class="sub">${carga(id)} abertas</span></button>`);
   });
@@ -1104,6 +1110,7 @@ async function iniciar() {
     catch (err) { if (err.message === 'login') { mostrarLogin(); return; } }
     if (eu) {
       MEU_NIVEL = eu.nivel;
+      if (Array.isArray(eu.permissoes)) MINHAS_PERMS = new Set(eu.permissoes);
       if (eu.assuntos?.length) ASSUNTOS = eu.assuntos;
       IA_LIGADA = !!eu.ia_ligada;
       LOGIN_LIVRE = !!eu.login_livre;

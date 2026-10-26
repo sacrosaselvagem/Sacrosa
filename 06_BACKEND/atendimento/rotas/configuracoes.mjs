@@ -64,7 +64,7 @@ const caixaLimpa = ib => ({
   horario_ligado: !!ib.working_hours_enabled, fuso: ib.timezone || null,
 });
 
-export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, souDona, RAIZ, lerJson, gravarJson }) {
+export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, souDona, pode, RAIZ, lerJson, gravarJson }) {
   if (!p.startsWith('/configuracoes')) return false;
   const ARQ = path.join(RAIZ, '00_CORE/Configuration/atendimento-geral.json');
   const CFG = path.join(RAIZ, '00_CORE/Configuration/chatwoot.json');
@@ -84,11 +84,13 @@ export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, 
     const caixas = ((await cw('inboxes', { token })).payload || []).map(caixaLimpa).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     return responder(res, 200, {
       ...g, texto_ia: textoParaIA(g.horario), texto_horario: textoHorario(g.horario.dias),
-      login_obrigatorio: c.login_obrigatorio === true, login_livre: !!s.livre, marcas: MARCAS, caixas, pode_mudar: souDona,
+      login_obrigatorio: c.login_obrigatorio === true, login_livre: !!s.livre, marcas: MARCAS, caixas, pode_mudar: pode('configuracoes'),
     });
   }
 
-  if (m !== 'GET' && !souDona) return responder(res, 403, { erro: 'Só a dona pode mudar as configurações.' });
+  if (m !== 'GET' && !pode('configuracoes')) return responder(res, 403, { erro: 'Seu acesso não inclui mudar as configurações.' });
+  // ligar ou desligar o login é sempre só da dona
+  if (p === '/configuracoes/login' && !souDona) return responder(res, 403, { erro: 'Só a dona liga ou desliga o login.' });
 
   if (p === '/configuracoes/geral' && m === 'POST') {
     const corpo = await lerCorpo(req);

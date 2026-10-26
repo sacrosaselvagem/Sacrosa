@@ -6,10 +6,10 @@
 const TIPO_SITE = 'Channel::WebWidget';
 const semTokens = txt => txt.replace(/"(access_token|pubsub_token|password|hmac_token|secret)"\s*:\s*"[^"]*"/g, '"$1":null');
 
-export default async function ({ p, m, req, res, s, cw, lerCorpo, responder, souDona }) {
+export default async function ({ p, m, req, res, s, cw, lerCorpo, responder, pode }) {
   const mm = p.match(/^\/cw\/campaigns(?:\/(\d+))?$/);
   if (!mm || m === 'GET') return false;
-  if (!souDona) { responder(res, 403, { erro: 'Só a dona pode mexer nas campanhas.' }); return true; }
+  if (!pode('campanhas')) { responder(res, 403, { erro: 'Seu acesso não inclui as campanhas.' }); return true; }
   const id = mm[1];
   const op = { token: s.token };
 

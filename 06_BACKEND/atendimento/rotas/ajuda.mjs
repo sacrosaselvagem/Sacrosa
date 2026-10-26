@@ -133,9 +133,9 @@ function extrair(base) {
   return temas.filter(t => t[2].length).map(([titulo, categoria, linhas]) => ({ titulo, categoria, texto: linhas.join('\n') }));
 }
 
-export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, nivel }) {
+export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, pode }) {
   if (!p.startsWith('/ajuda')) return false;
-  if (!['dona', 'supervisora'].includes(nivel)) { responder(res, 403, { erro: 'Só a dona e a supervisora mexem na Central de Ajuda.' }); return true; }
+  if (!pode('base_conhecimento')) { responder(res, 403, { erro: 'Seu acesso não inclui a Central de Ajuda.' }); return true; }
   const base = String(c.url_publica || c.url || '').replace(/\/$/, '');
 
   if (p === '/ajuda/dados' && m === 'GET') {

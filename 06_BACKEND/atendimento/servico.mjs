@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { iniciarIA, ASSUNTOS, ETIQUETA_HUMANO } from './ia.mjs';
 import { iniciarAcompanhamento } from './acompanhamento.mjs';
 import { iniciarClassificador } from './classificador.mjs';
+import { iniciarResumoDia } from './relatorio-dia.mjs';
 
 const PORTA = Number(process.env.RS_PORTA) || 8790;
 const HOST = process.env.RS_HOST || '127.0.0.1'; // na VPS (Docker) é 0.0.0.0, atrás do Caddy
@@ -65,6 +66,47 @@ function sessaoDe(req) {
   return { id, ...s };
 }
 const nivelDe = (userId, papel) => lerJson(NIVEIS_ARQ, {})[userId] || (papel === 'administrator' ? 'dona' : 'atendente');
+
+// ---------- acessos: o que cada nível pode (a dona pode tudo e ajusta os outros em Usuários) ----------
+// Setor = time do Chatwoot (trocas, financeiro, pedidos, vendas, SAC geral). Quem não pode "ver todas as conversas"
+// vê só as do(s) seu(s) setor(es), as que estão com ela e as que ainda não têm setor nem dono.
+// Só da dona, sempre: integrações, usuários, ligar/desligar a IA e mudar estes acessos.
+const ACESSOS_ARQ = path.join(CONF, 'atendimento-acessos.json');
+export const PERMISSOES = {
+  todas_conversas: { nome: 'Ver todas as conversas', desc: 'Sem isso, vê só as do seu setor, as suas e as que ainda não têm setor.', padrao: { supervisora: true, atendente: false } },
+  passar_conversas: { nome: 'Passar conversa para outra pessoa', desc: 'Sem isso, só assume, devolve para a fila ou para a IA.', padrao: { supervisora: true, atendente: false } },
+  relatorios: { nome: 'Ver relatórios', desc: 'Números do atendimento, da equipe e da IA.', padrao: { supervisora: true, atendente: false } },
+  treinar_ia: { nome: 'Treinar e testar a IA', desc: 'Capitão (jeito de falar da IA) e Simular conversa.', padrao: { supervisora: true, atendente: false } },
+  base_conhecimento: { nome: 'Editar a Central de Ajuda', desc: 'Criar e mudar artigos da ajuda para as clientes.', padrao: { supervisora: true, atendente: false } },
+  comentarios: { nome: 'Responder comentários', desc: 'Responder, ocultar e curtir comentários do Instagram e Facebook.', padrao: { supervisora: true, atendente: true } },
+  campanhas: { nome: 'Mandar campanhas', desc: 'Mensagem em massa para clientes.', padrao: { supervisora: false, atendente: false } },
+  configuracoes: { nome: 'Mudar configurações', desc: 'Horário, distribuição, times e para onde vai cada assunto.', padrao: { supervisora: false, atendente: false } },
+};
+const acessos = () => lerJson(ACESSOS_ARQ, {});
+const pode = (nivel, perm) => nivel === 'dona' || !!(acessos()[nivel]?.[perm] ?? PERMISSOES[perm]?.padrao?.[nivel]);
+const permissoesDe = nivel => Object.keys(PERMISSOES).filter(k => pode(nivel, k));
+
+// setores (times) de cada pessoa, com o acesso de administração; guarda por 1 minuto
+let setoresCache = { ate: 0, mapa: new Map(), times: [] };
+async function setores() {
+  if (Date.now() < setoresCache.ate) return setoresCache;
+  const times = await cw('teams').catch(() => []);
+  const mapa = new Map();
+  for (const t of times || []) {
+    const membros = await cw(`teams/${t.id}/team_members`).catch(() => []);
+    for (const u of membros || []) { if (!mapa.has(u.id)) mapa.set(u.id, new Set()); mapa.get(u.id).add(t.id); }
+  }
+  setoresCache = { ate: Date.now() + 60e3, mapa, times: (times || []).map(t => ({ id: t.id, nome: t.name })) };
+  return setoresCache;
+}
+const setoresDe = async uid => (await setores()).mapa.get(uid) || new Set();
+// a conversa aparece para quem não vê todas?
+function conversaVisivel(conv, uid, meus) {
+  const dono = conv?.meta?.assignee?.id ?? conv?.assignee_id, time = conv?.meta?.team?.id ?? conv?.team_id;
+  if (dono === uid) return true;
+  if (time) return meus.has(time);
+  return !dono;
+}
 
 function senhaProvisoria() {
   const n = crypto.randomInt(1000, 9999), l = 'abcdefghjkmnpqrstuvwxyz';
@@ -130,7 +172,25 @@ async function rota(req, res) {
     sessoes.delete(s.id); salvarSessoes();
     return responder(res, 200, { ok: true }, { 'Set-Cookie': `atd=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${seguro(req)}` });
   }
-  if (p === '/eu') return responder(res, 200, { login_livre: !!s.livre, id: s.userId, nome: s.nome, email: s.email, nivel: nivelDe(s.userId, s.papel), niveis: NIVEIS, assuntos: ASSUNTOS, ia_ligada: !!c.ia?.ligada });
+  const meuNivel = nivelDe(s.userId, s.papel);
+  let mm;
+  if (p === '/eu') return responder(res, 200, {
+    login_livre: !!s.livre, id: s.userId, nome: s.nome, email: s.email, nivel: meuNivel, niveis: NIVEIS, assuntos: ASSUNTOS, ia_ligada: !!c.ia?.ligada,
+    permissoes: permissoesDe(meuNivel), setores: [...await setoresDe(s.userId)],
+  });
+  // ---------- acessos por nível (só a dona muda) ----------
+  if (p === '/acessos' && m === 'GET') {
+    const tabela = {};
+    for (const n of ['supervisora', 'atendente']) tabela[n] = Object.fromEntries(Object.keys(PERMISSOES).map(k => [k, pode(n, k)]));
+    return responder(res, 200, { permissoes: PERMISSOES, tabela, setores: (await setores()).times });
+  }
+  if (p === '/acessos' && m === 'POST') {
+    if (!souDona) return responder(res, 403, { erro: 'Só a dona muda os acessos.' });
+    const { nivel, permissao, ligado } = await lerCorpo(req);
+    if (!['supervisora', 'atendente'].includes(nivel) || !PERMISSOES[permissao]) return responder(res, 400, { erro: 'Acesso inválido.' });
+    const a = acessos(); a[nivel] = { ...(a[nivel] || {}), [permissao]: !!ligado }; gravarJson(ACESSOS_ARQ, a);
+    return responder(res, 200, { ok: true });
+  }
   if (p === '/perfil') return responder(res, 200, semTokens(JSON.stringify(await cw('profile', { token: s.token, base: 'api' }))));
   if (p === '/perfil/disponibilidade' && m === 'POST') {
     const { availability } = await lerCorpo(req);
@@ -147,24 +207,42 @@ async function rota(req, res) {
   if (p === '/usuarios' && m === 'GET') {
     const agentes = await cw('agents');
     const niveis = lerJson(NIVEIS_ARQ, {});
+    const st = await setores();
     return responder(res, 200, agentes.map(a => ({
       id: a.id, nome: a.available_name || a.name, email: a.email, nivel: niveis[a.id] || (a.role === 'administrator' ? 'dona' : 'atendente'),
-      disponibilidade: a.availability_status, confirmado: a.confirmed,
+      disponibilidade: a.availability_status, confirmado: a.confirmed, setores: [...(st.mapa.get(a.id) || [])],
     })));
   }
   if (p.startsWith('/usuarios') && !souDona) return responder(res, 403, { erro: 'Só a dona pode mexer nos usuários.' });
+  // setores (times) da pessoa: põe e tira dos times do Chatwoot
+  if ((mm = p.match(/^\/usuarios\/(\d+)\/setores$/)) && m === 'POST') {
+    const uid = Number(mm[1]);
+    const { setores: quer = [] } = await lerCorpo(req);
+    const alvo = new Set(quer.map(Number));
+    for (const t of (await setores()).times) {
+      const membros = ((await cw(`teams/${t.id}/team_members`).catch(() => [])) || []).map(u => u.id);
+      const tem = membros.includes(uid);
+      if (alvo.has(t.id) && !tem) await cw(`teams/${t.id}/team_members`, { method: 'POST', body: { user_ids: [uid] } });
+      if (!alvo.has(t.id) && tem) await cw(`teams/${t.id}/team_members`, { method: 'DELETE', body: { user_ids: [uid] } });
+    }
+    setoresCache.ate = 0;
+    return responder(res, 200, { ok: true });
+  }
   if (p === '/usuarios' && m === 'POST') {
-    const { nome, email, nivel } = await lerCorpo(req);
+    const { nome, email, nivel, setores: setoresNovos = [] } = await lerCorpo(req);
     if (!nome?.trim() || !/^\S+@\S+\.\S+$/.test(email || '') || !NIVEIS[nivel]) return responder(res, 400, { erro: 'Preencha nome, e-mail e nível.' });
     const senha = senhaProvisoria();
     const u = await cw('users', { method: 'POST', base: 'plataforma', token: c.token_plataforma, body: { name: nome.trim(), display_name: nome.trim(), email: email.trim().toLowerCase(), password: senha } });
+    // quem já teve acesso e foi removida volta com a mesma conta: a senha nova precisa ser gravada nela
+    await cw(`users/${u.id}`, { method: 'PATCH', base: 'plataforma', token: c.token_plataforma, body: { password: senha } });
     await cw(`accounts/${c.conta}/account_users`, { method: 'POST', base: 'plataforma', token: c.token_plataforma, body: { user_id: u.id, role: NIVEIS[nivel].papel } });
     const caixas = (await cw('inboxes')).payload || [];
     for (const ib of caixas) await cw('inbox_members', { method: 'POST', body: { inbox_id: ib.id, user_ids: [u.id] } }).catch(() => {});
     const niveis = lerJson(NIVEIS_ARQ, {}); niveis[u.id] = nivel; gravarJson(NIVEIS_ARQ, niveis);
+    for (const t of setoresNovos.map(Number).filter(Boolean)) await cw(`teams/${t}/team_members`, { method: 'POST', body: { user_ids: [u.id] } }).catch(() => {});
+    setoresCache.ate = 0;
     return responder(res, 200, { id: u.id, email: u.email, senha });
   }
-  let mm;
   if ((mm = p.match(/^\/usuarios\/(\d+)$/))) {
     const uid = Number(mm[1]);
     if (m === 'PATCH') {
@@ -201,20 +279,60 @@ async function rota(req, res) {
     return responder(res, 200, { ligada: !!ligada, caixas: caixas.length });
   }
 
+  // ---------- portão das seções: cada uma pede um acesso (ler costuma ser livre, mudar não) ----------
+  const GUARDAS = [
+    [/^\/relatorios/, () => 'relatorios'],
+    [/^\/campanhas/, () => 'campanhas'],
+    [/^\/capitao/, () => 'treinar_ia'],
+    [/^\/ajuda/, () => (m === 'GET' ? null : 'base_conhecimento')],
+    [/^\/configuracoes/, () => (m === 'GET' ? null : 'configuracoes')],
+    [/^\/comentarios\/(responder|ocultar|curtir|desfazer|sugerir)/, () => 'comentarios'],
+  ];
+  for (const [re, perm] of GUARDAS) {
+    const precisa = re.test(p) && perm();
+    if (precisa && !pode(meuNivel, precisa)) return responder(res, 403, { erro: `Seu acesso não inclui "${PERMISSOES[precisa].nome}". Peça para a dona liberar em Usuários.` });
+  }
+
   // ---------- rotas das seções (06_BACKEND/atendimento/rotas/*.mjs) ----------
   for (const r of await carregarRotas()) {
-    const tratou = await r({ p, m, req, res, url, s, c, cw, lerCorpo, responder, souDona, nivel: nivelDe(s.userId, s.papel), RAIZ, lerJson, gravarJson });
+    const tratou = await r({ p, m, req, res, url, s, c, cw, lerCorpo, responder, souDona, nivel: meuNivel, pode: perm => pode(meuNivel, perm), RAIZ, lerJson, gravarJson });
     // vale também a rota que respondeu e esqueceu de devolver true
     if (tratou || res.headersSent) return;
   }
 
   // ---------- ponte genérica para a conta, com o token de quem está logada ----------
   if ((mm = p.match(/^\/cw\/([\w\-/]{1,200})$/)) && !mm[1].includes('..')) {
+    const caminho = mm[1];
     const corpo = m === 'GET' ? undefined : await lerCorpo(req);
-    const r = await fetch(`${c.url.replace(/\/$/, '')}/api/v1/accounts/${c.conta}/${mm[1]}${url.search}`, {
+    const veTudo = pode(meuNivel, 'todas_conversas');
+    const meus = veTudo ? null : await setoresDe(s.userId);
+    // conversa de outro setor: nem abre
+    const conv = caminho.match(/^conversations\/(\d+)(\/|$)/);
+    if (conv && !veTudo) {
+      const alvo = await cw(`conversations/${conv[1]}`).catch(() => null);
+      if (alvo && !conversaVisivel(alvo, s.userId, meus)) return responder(res, 403, { erro: 'Essa conversa é de outro setor.' });
+    }
+    // passar para outra pessoa (assumir, devolver e deixar sem dono são livres)
+    if (conv && /\/assignments$/.test(caminho) && m === 'POST' && corpo?.assignee_id && Number(corpo.assignee_id) !== s.userId && !pode(meuNivel, 'passar_conversas')) {
+      return responder(res, 403, { erro: 'Seu acesso não inclui passar conversa para outra pessoa. Você pode assumir ou devolver para a fila.' });
+    }
+    const r = await fetch(`${c.url.replace(/\/$/, '')}/api/v1/accounts/${c.conta}/${caminho}${url.search}`, {
       method: m, headers: { api_access_token: s.token, 'Content-Type': 'application/json' }, body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });
-    return responder(res, r.status, semTokens(await r.text()));
+    const txt = semTokens(await r.text());
+    // lista de conversas: tira as de outros setores
+    if (!veTudo && r.ok && m === 'GET' && /^conversations(\/search)?$/.test(caminho)) {
+      try {
+        const j = JSON.parse(txt);
+        const lista = j.data?.payload ?? j.payload;
+        if (Array.isArray(lista)) {
+          const filtrada = lista.filter(x => conversaVisivel(x, s.userId, meus));
+          if (j.data?.payload) j.data.payload = filtrada; else j.payload = filtrada;
+          return responder(res, 200, JSON.stringify(j));
+        }
+      } catch { /* devolve como veio */ }
+    }
+    return responder(res, r.status, txt);
   }
   return responder(res, 404, { erro: 'rota desconhecida' });
 }
@@ -269,3 +387,4 @@ criarEtiquetas().catch(e => console.error('etiquetas:', e.message));
 iniciarIA({ cfg, cw });
 iniciarAcompanhamento({ cfg, cw });
 iniciarClassificador({ cfg, cw });
+iniciarResumoDia({ cfg, cw });

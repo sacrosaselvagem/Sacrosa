@@ -196,9 +196,9 @@ function responderPergunta({ linha, pergunta, resposta }) {
   return { status: 200, ok: true, linha: linhaBase };
 }
 
-export default async function ({ p, m, req, res, c, lerCorpo, responder, nivel, RAIZ }) {
+export default async function ({ p, m, req, res, c, lerCorpo, responder, pode, RAIZ }) {
   if (!p.startsWith('/capitao')) return false;
-  if (!['dona', 'supervisora'].includes(nivel)) { responder(res, 403, { erro: 'Só a dona e a supervisora podem usar o Capitão.' }); return true; }
+  if (!pode('treinar_ia')) { responder(res, 403, { erro: 'Seu acesso não inclui treinar e testar a IA.' }); return true; }
 
   if (p === '/capitao/numeros' && m === 'GET') {
     responder(res, 200, { ...numeros(RAIZ), ia_ligada: !!c.ia?.ligada, modelo: c.ia?.modelo || 'opus' });

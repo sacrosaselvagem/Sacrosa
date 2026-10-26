@@ -1,6 +1,6 @@
 // Relatórios do atendimento: junta os números do Chatwoot (API de relatórios v2) e o registro da IA do SAC.
 //   GET /api/atendimento/relatorios?periodo=hoje|7|30
-// Só dona e supervisora. Usa o login de quem pediu (s.token). Contrato: 09_DOCUMENTATION/atendimento-modulos.md
+// Quem vê é decidido pelo acesso "relatorios" (Usuários > Acessos por nível). Lê com o acesso de administração, porque o Chatwoot só deixa administradora ler relatório. Contrato: 09_DOCUMENTATION/atendimento-modulos.md
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -57,10 +57,10 @@ function lerIA(RAIZ, desde, ate) {
   };
 }
 
-export default async function ({ p, m, res, url, s, c, responder, nivel, RAIZ }) {
+export default async function ({ p, m, res, url, s, c, responder, pode, RAIZ }) {
   if (p !== '/relatorios') return false;
   if (m !== 'GET') { responder(res, 405, { erro: 'Use GET.' }); return true; }
-  if (!['dona', 'supervisora'].includes(nivel)) { responder(res, 403, { erro: 'Só a dona e a supervisora veem os relatórios.' }); return true; }
+  if (!pode('relatorios')) { responder(res, 403, { erro: 'Seu acesso não inclui os relatórios.' }); return true; }
 
   const periodo = PERIODOS[url.searchParams.get('periodo')] ? url.searchParams.get('periodo') : '7';
   const dias = PERIODOS[periodo];
@@ -68,15 +68,15 @@ export default async function ({ p, m, res, url, s, c, responder, nivel, RAIZ })
   const desde = inicioDeHoje() - (dias - 1) * DIA;
   const agrupar = dias === 1 ? 'hour' : 'day';
   const q = `since=${desde}&until=${ate}`;
-  const serie = metrica => v2(c, s.token, `reports?metric=${metrica}&type=account&${q}&group_by=${agrupar}&timezone_offset=${FUSO}`);
+  const serie = metrica => v2(c, c.token, `reports?metric=${metrica}&type=account&${q}&group_by=${agrupar}&timezone_offset=${FUSO}`);
 
   const [resumo, recebidas, resolvidas, pessoas, caixas, etiquetas] = await Promise.all([
-    v2(c, s.token, `reports/summary?type=account&${q}&timezone_offset=${FUSO}`),
+    v2(c, c.token, `reports/summary?type=account&${q}&timezone_offset=${FUSO}`),
     serie('conversations_count'),
     serie('resolutions_count'),
-    v2(c, s.token, `summary_reports/agent?${q}`),
-    v2(c, s.token, `summary_reports/inbox?${q}`),
-    v2(c, s.token, `summary_reports/label?${q}`),
+    v2(c, c.token, `summary_reports/agent?${q}`),
+    v2(c, c.token, `summary_reports/inbox?${q}`),
+    v2(c, c.token, `summary_reports/label?${q}`),
   ]);
 
   // a série vem com um ponto por hora/dia; junta recebidas e resolvidas pelo horário
