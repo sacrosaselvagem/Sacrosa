@@ -402,8 +402,12 @@ function abrirGavetaAppMeta(modo) {
       <div class="gaveta-head"><span class="card-ico">${ico(INTEG_ICO.appmeta)}</span><h2 id="g-titulo">${t}</h2><button class="btn icone fantasma" data-fechar="1" aria-label="Fechar">${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button></div>
       <div class="gaveta-corpo">${corpo}</div><div class="gaveta-pe">${rodape}</div></div></div>`;
   };
+  const wa = a.whatsapp?.numeros ? `<div class="campo"><label>WhatsApp</label>${a.whatsapp.numeros.map(n => n.ok
+      ? `<div class="sucesso">${esc(n.caixa || n.numero)}: recebendo as mensagens.</div>`
+      : `<div class="erro">${esc(n.caixa || n.numero)}: a Meta não ligou (${esc(n.erro || '')}).</div>`).join('')}
+      ${a.whatsapp.app && !a.whatsapp.app.ok ? `<div class="erro">Webhook do app: ${esc(a.whatsapp.app.erro || '')}</div>` : ''}</div>` : '';
   if (a.facebook && modo !== 'trocar') {
-    montar('App da Meta', `<div class="sucesso">O app ${esc(a.nome)} está no sistema${a.instagram ? ` e o do Instagram (${esc(a.nome_ig)}) também` : ''}. Falta só colar estes endereços no painel da Meta, uma vez.</div>
+    montar('App da Meta', `${wa}<div class="sucesso">O app ${esc(a.nome)} está no sistema${a.instagram ? ` e o do Instagram (${esc(a.nome_ig)}) também` : ''}. Falta só colar estes endereços no painel da Meta, uma vez.</div>
       <ol class="passos">
         <li><span><b>Messenger:</b> em developers.facebook.com, no app, abra <b>Messenger &gt; Configurações da API</b>. Em Webhooks, cole o endereço e o token abaixo, clique em <b>Verificar e salvar</b> e marque <b>messages, messaging_postbacks, message_deliveries, message_reads e messaging_echoes</b>.</span></li>
         <li><span><b>Instagram:</b> em <b>Instagram &gt; Configuração da API com login do Instagram</b>, na parte de Webhooks, cole o endereço do Instagram e o mesmo token, e marque <b>messages, message_reactions e messaging_seen</b>. Em <b>Configurar login comercial do Instagram</b>, cole o endereço de retorno.</span></li>
@@ -423,9 +427,10 @@ function abrirGavetaAppMeta(modo) {
   montar(modo === 'trocar' ? 'Trocar as chaves do app' : 'Ligar o App da Meta', `
     <p class="desc">É o mesmo app da Meta onde está a API do WhatsApp. Você faz isso uma vez e vale para o sistema inteiro, em qualquer computador.</p>
     <ol class="passos">
-      <li><span>Em <b>developers.facebook.com/apps</b>, abra o app da marca e vá em <b>Configurações do app &gt; Básico</b>. Copie o <b>ID do app</b> e a <b>Chave secreta do app</b> (clique em Mostrar).</span></li>
+      <li><span>Use o <b>mesmo app do token do WhatsApp</b> (hoje é o <b>Traqueamento Rosa Selvagem</b>). Com a chave dele, o sistema também liga o recebimento das mensagens do WhatsApp sozinho.</span></li>
+      <li><span>Em <b>developers.facebook.com/apps</b>, abra esse app e vá em <b>Configurações do app &gt; Básico</b>. Copie o <b>ID do app</b> e a <b>Chave secreta do app</b> (clique em Mostrar).</span></li>
       <li><span>Se o app ainda não tem o Instagram, clique em <b>Adicionar produto &gt; Instagram</b>. Na tela <b>Configuração da API com login do Instagram</b>, copie o <b>ID do app do Instagram</b> e a <b>chave secreta</b> dele.</span></li>
-      <li><span>Cole os quatro abaixo e clique em <b>Ligar</b>. O sistema confere na Meta e mostra os endereços para colar lá.</span></li></ol>
+      <li><span>Cole abaixo (os do Instagram podem ficar para depois) e clique em <b>Ligar</b>. O sistema confere na Meta e mostra os endereços para colar lá.</span></li></ol>
     ${campos}<div id="g-erro"></div>`,
     '<button class="btn fantasma" data-fechar="1">Cancelar</button><button class="btn prim" data-appmeta="salvar">Ligar</button>');
   $('#am-app_id')?.focus();

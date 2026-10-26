@@ -50,6 +50,39 @@ function gravarNoChatwoot(container, valores) {
     p.stdin.end(JSON.stringify(valores));
   });
 }
+// WhatsApp: a Meta só deixa mandar as mensagens de um número para cá depois que o app tem o webhook do WhatsApp
+// ligado no nível do app. Isso pede a chave secreta do app (o token não basta). Com ela no Chatwoot, liga o webhook
+// do app e aponta cada número para cá. Devolve [{ numero, ok, erro }].
+const RUBY_WEBHOOK_WA = `
+app_id = GlobalConfigService.load('FB_APP_ID', ''); sec = GlobalConfigService.load('FB_APP_SECRET', '')
+if app_id.blank? || sec.blank? then puts 'R ' + { erro: 'sem-app' }.to_json; exit end
+canais = Channel::Whatsapp.where(provider: 'whatsapp_cloud').to_a
+if canais.empty? then puts 'R ' + { erro: 'sem-whatsapp' }.to_json; exit end
+g = 'https://graph.facebook.com/v22.0'
+url = ->(c) { "#{ENV['FRONTEND_URL']}/webhooks/whatsapp/#{c.phone_number}" }
+c0 = canais.first
+r = HTTParty.post("#{g}/#{app_id}/subscriptions", body: { object: 'whatsapp_business_account', callback_url: url.(c0), verify_token: c0.provider_config['webhook_verify_token'], fields: 'messages', access_token: "#{app_id}|#{sec}" })
+app = { ok: r.code == 200, erro: (JSON.parse(r.body)['error']['message'] rescue nil) }
+numeros = canais.map do |c|
+  pc = c.provider_config
+  s = HTTParty.post("#{g}/#{pc['business_account_id']}/subscribed_apps", headers: { 'Authorization' => "Bearer #{pc['api_key']}", 'Content-Type' => 'application/json' },
+    body: { override_callback_uri: url.(c), verify_token: pc['webhook_verify_token'] }.to_json)
+  { numero: c.phone_number, caixa: c.inbox&.name, ok: s.code == 200, erro: (JSON.parse(s.body)['error']['message'] rescue nil) }
+end
+puts 'R ' + { app: app, numeros: numeros }.to_json`;
+function rodarNoChatwoot(container, ruby, entrada = '') {
+  return new Promise((ok, falha) => {
+    const p = spawn('docker', ['exec', '-i', container, 'bundle', 'exec', 'rails', 'runner', ruby], { windowsHide: true });
+    let saida = '';
+    p.stdout.on('data', d => { saida += d; });
+    p.stderr.on('data', d => { saida += d; });
+    p.on('error', e => falha(new Error(`não consegui falar com o Chatwoot (${e.message})`)));
+    p.on('close', () => { const l = saida.split(/\n/).find(x => x.startsWith('R ')); l ? ok(JSON.parse(l.slice(2))) : falha(new Error(`o Chatwoot não respondeu (${saida.trim().split(/\n/).pop()?.slice(0, 160)})`)); });
+    p.stdin.end(entrada);
+  });
+}
+export const ligarWebhooksWhatsApp = container => rodarNoChatwoot(container, RUBY_WEBHOOK_WA);
+
 async function conferirApp(id, segredo) {
   const r = await fetch(`${GRAPH}/${id}?fields=name&access_token=${encodeURIComponent(`${id}|${segredo}`)}`);
   const j = await r.json().catch(() => ({}));
@@ -78,10 +111,15 @@ async function acharWhatsApp(tk, numero, conta) {
   if (!pista.permissoes.length) await tentar('permissoes', async () => { const p = await graph('me/permissions', tk); pista.permissoes = (p.data || []).filter(x => x.status === 'granted').map(x => x.permission); });
   // 3) usuário do sistema: contas atribuídas a ele
   if (!wabas.size) await tentar('atribuidas', async () => { const l = await graph(`${eu.id}/assigned_whatsapp_business_accounts?fields=id&limit=50`, tk); (l.data || []).forEach(w => wabas.add(w.id)); });
-  // 4) as empresas do token (precisa de business_management)
+  // 4) as empresas do token (precisa de business_management). Usuário do sistema não lista empresas em /me/businesses:
+  //    acha a empresa pelas páginas e contas de anúncio atribuídas a ele.
   if (!wabas.size) await tentar('empresas', async () => {
-    const emp = await graph('me/businesses?fields=id&limit=50', tk);
-    for (const b of emp.data || []) for (const tipo of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+    const empresas = new Set(((await graph('me/businesses?fields=id&limit=50', tk).catch(() => ({}))).data || []).map(b => b.id));
+    for (const ativo of ['assigned_pages', 'assigned_ad_accounts', 'accounts']) {
+      const l = await graph(`me/${ativo}?fields=business{id}&limit=50`, tk).catch(() => ({}));
+      for (const x of l.data || []) if (x.business?.id) empresas.add(x.business.id);
+    }
+    for (const b of [...empresas].map(id => ({ id }))) for (const tipo of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
       const l = await graph(`${b.id}/${tipo}?fields=id&limit=50`, tk).catch(() => ({}));
       (l.data || []).forEach(w => wabas.add(w.id));
     }
@@ -95,9 +133,10 @@ async function acharWhatsApp(tk, numero, conta) {
   }
   const todos = [];
   for (const waba of wabas) {
-    const l = await graph(`${waba}/phone_numbers?fields=id,display_phone_number,verified_name&limit=50`, tk).catch(() => ({}));
-    for (const n of l.data || []) todos.push({ waba, id: n.id, numero: n.display_phone_number, nome: n.verified_name });
+    const l = await graph(`${waba}/phone_numbers?fields=id,display_phone_number,verified_name,status&limit=50`, tk).catch(() => ({}));
+    for (const n of l.data || []) todos.push({ waba, id: n.id, numero: n.display_phone_number, nome: n.verified_name, status: n.status });
   }
+  todos.sort((a, b) => (a.status === 'CONNECTED' ? 0 : 1) - (b.status === 'CONNECTED' ? 0 : 1)); // o mesmo número em duas contas: vale o ativo
   const alvo = soDigitos(numero).length >= 14 && wabas.has(soDigitos(numero)) ? '' : soDigitos(numero);
   const achado = alvo ? todos.find(n => n.id === alvo || mesmoNumero(n.numero, alvo)) : todos.length === 1 ? todos[0] : null;
   if (achado) return achado;
@@ -162,9 +201,18 @@ export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, 
         waba = n.waba; fone = n.id;
       }
       // o Chatwoot confere tudo na Meta, cria a caixa e inscreve o app para receber as mensagens (webhook)
-      const r = await cw('whatsapp/manual/connect', { method: 'POST', token, body: { waba_id: waba, phone_number_id: fone, access_token: tk, inbox_name: nomeCaixa('WhatsApp', b.marca) } });
+      const r = await cw('whatsapp/manual/connect', { method: 'POST', token, body: { waba_id: waba, phone_number_id: fone, access_token: tk, inbox_name: String(b.nome || '').trim().slice(0, 60) || nomeCaixa('WhatsApp', b.marca) } });
       await preparar({ id: r.id, name: r.name });
-      responder(res, 200, { id: r.id, nome: r.name, webhook_ok: !!r.webhook_setup, webhook_erro: r.webhook_error ? erroClaro(r.webhook_error) : null });
+      let webhook_erro = r.webhook_error ? erroClaro(r.webhook_error) : null;
+      if (/must be subscribed to receive messages/i.test(r.webhook_error || '')) {
+        // falta o webhook do WhatsApp no nível do app: se a chave do app já estiver aqui, liga sozinho
+        const w = await ligarWebhooksWhatsApp(c.chatwoot_container || 'chatwoot-rosa-rails-1').catch(e => ({ erro: e.message }));
+        const meu = (w.numeros || []).find(x => x.caixa === r.name);
+        webhook_erro = meu?.ok ? null : w.erro === 'sem-app'
+          ? 'Falta um passo para as mensagens chegarem: em Integrações > App da Meta, cole o ID e a chave secreta do app do token. O sistema liga o resto sozinho.'
+          : `A Meta não ligou o recebimento: ${meu?.erro || w.app?.erro || w.erro}`;
+      }
+      responder(res, 200, { id: r.id, nome: r.name, webhook_ok: !webhook_erro, webhook_erro });
       return true;
     }
     if (p === '/canais/telegram' && m === 'POST') {
@@ -229,7 +277,9 @@ export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, 
         if (ig_app_id) Object.assign(valores, { INSTAGRAM_APP_ID: ig_app_id, INSTAGRAM_APP_SECRET: ig_app_secret });
         await gravarNoChatwoot(c.chatwoot_container || 'chatwoot-rosa-rails-1', valores);
         gravarJson(ARQ, { ...salvo, app_id, nome, ...(ig_app_id ? { ig_app_id, nome_ig } : {}), verificacao, em: new Date().toISOString(), por: s?.nome || 'dona' });
-        responder(res, 200, { ok: true, ...enderecos() });
+        // com a chave do app, os números de WhatsApp já conectados passam a receber as mensagens
+        const whatsapp = await ligarWebhooksWhatsApp(c.chatwoot_container || 'chatwoot-rosa-rails-1').catch(e => ({ erro: e.message }));
+        responder(res, 200, { ok: true, ...enderecos(), whatsapp });
         return true;
       }
     }
