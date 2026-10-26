@@ -5,6 +5,9 @@
 //   POST /rosa/mensagem            -> { texto, conversa_id? } -> { resposta, aprendizado }
 //   POST /rosa/limpar              -> apaga o histórico desta pessoa
 // O histórico de cada pessoa fica em 07_LOGS/atendimento/rosa/<id>.jsonl (as últimas 20 trocas vão no pedido).
+// Aprendizado: toda troca vira uma linha do conjunto de dados 07_LOGS/aprendizado/falar-com-a-rosa.jsonl (pergunta,
+// resposta, assunto, aprendizados, lacunas), que o Minerador lê de madrugada. O que a Rosa tira de cada troca entra
+// na hora no Cérebro (SAC - Aprendizados), e a IA das clientes já usa na próxima resposta. "Limpar" só arquiva.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -19,10 +22,24 @@ const SCHEMA = {
   type: 'object',
   properties: {
     resposta: { type: 'string' },
-    aprendizado: { type: 'string' },
+    aprendizados: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          tipo: { type: 'string', enum: ['regra', 'correcao', 'produto', 'politica', 'tom', 'cliente', 'processo'] },
+          regra: { type: 'string' },
+        },
+        required: ['tipo', 'regra'],
+      },
+    },
+    lacunas: { type: 'array', items: { type: 'string' } },
+    assunto: { type: 'string' },
   },
-  required: ['resposta', 'aprendizado'],
+  required: ['resposta', 'aprendizados', 'lacunas', 'assunto'],
 };
+const NOME_TIPO = { regra: 'Regra', correcao: 'Correção', produto: 'Produto', politica: 'Política', tom: 'Jeito de falar', cliente: 'Cliente', processo: 'Processo' };
+const semAcento = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 const ler = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
 const hoje = () => new Date().toISOString().slice(0, 10);
@@ -58,14 +75,12 @@ function perguntar(sistema, mensagem) {
   });
 }
 
-// o que a equipe ensina vira linha em "Respostas corrigidas ou aprovadas pela equipe"
-function guardarAprendizado(texto, quem, nivel) {
+// acrescenta uma linha numa seção do "SAC - Aprendizados" (cria a seção se faltar; não repete o que já está lá)
+function acrescentar(titulo, linha, chave) {
   const f = path.join(CEREBRO, 'SAC', 'SAC - Aprendizados.md');
   const nota = ler(f);
   if (!nota) return false;
-  const marca = nivel === 'atendente' ? ' (a confirmar pela dona ou supervisora)' : '';
-  const linha = `- ${hoje()}: ${texto.replace(/\s+/g, ' ').trim()} (ensinado por ${quem} no chat com a Rosa)${marca}`;
-  const titulo = '## Respostas corrigidas ou aprovadas pela equipe';
+  if (semAcento(nota).includes(semAcento(chave).slice(0, 70))) return false;
   const i = nota.indexOf(titulo);
   let novo;
   if (i < 0) novo = `${nota.trimEnd()}\n\n${titulo}\n${linha}\n`;
@@ -76,6 +91,16 @@ function guardarAprendizado(texto, quem, nivel) {
   }
   fs.writeFileSync(f, novo);
   return true;
+}
+// o que a equipe ensina vira linha em "Respostas corrigidas ou aprovadas pela equipe"
+function guardarAprendizado(a, quem, nivel) {
+  const texto = a.regra.replace(/\s+/g, ' ').trim();
+  const marca = nivel === 'atendente' ? ' (a confirmar pela dona ou supervisora)' : '';
+  return acrescentar('## Respostas corrigidas ou aprovadas pela equipe', `- ${hoje()}: [${NOME_TIPO[a.tipo] || 'Regra'}] ${texto} (aprendido com ${quem} no chat com a Rosa)${marca}`, texto);
+}
+function guardarLacuna(pergunta, quem) {
+  const texto = pergunta.replace(/\s+/g, ' ').trim();
+  return acrescentar('## Perguntas sem resposta na base', `- ${hoje()}: ${texto} (perguntado por ${quem} no chat com a Rosa)`, texto);
 }
 
 function decisoesDeHoje(RAIZ) {
@@ -102,7 +127,8 @@ export default async function ({ p, m, req, res, s, cw, lerCorpo, responder, niv
     return true;
   }
   if (p === '/rosa/limpar' && m === 'POST') {
-    try { fs.unlinkSync(arq); } catch { /* já estava vazio */ }
+    // não apaga: arquiva, para o aprendizado não perder nada
+    try { const arquivo = path.join(pasta, 'arquivo'); fs.mkdirSync(arquivo, { recursive: true }); fs.renameSync(arq, path.join(arquivo, `${path.basename(arq, '.jsonl')}-${Date.now()}.jsonl`)); } catch { /* já estava vazio */ }
     responder(res, 200, { ok: true });
     return true;
   }
@@ -144,11 +170,22 @@ export default async function ({ p, m, req, res, s, cw, lerCorpo, responder, niv
     emUso++;
     try {
       const r = await perguntar(sistema, mensagem);
-      let guardado = false;
-      if (r.aprendizado?.trim()) { try { guardado = guardarAprendizado(r.aprendizado, s.nome || 'equipe', nivel); } catch { /* o Obsidian pode estar com o arquivo aberto */ } }
-      const resposta = { de: 'rosa', txt: r.resposta.trim(), t: Date.now(), ...(guardado ? { aprendizado: r.aprendizado.trim() } : {}) };
+      const quem = s.nome || 'equipe';
+      const aprendizados = (r.aprendizados || []).filter(a => a?.regra?.trim()).slice(0, 5);
+      const lacunas = (r.lacunas || []).map(x => String(x).trim()).filter(Boolean).slice(0, 3);
+      const guardados = [];
+      for (const a of aprendizados) { try { if (guardarAprendizado(a, quem, nivel)) guardados.push(a.regra.trim()); } catch { /* o Obsidian pode estar com o arquivo aberto */ } }
+      for (const l of lacunas) { try { guardarLacuna(l, quem); } catch { /* idem */ } }
+      // conjunto de dados do aprendizado: toda troca, ensinando ou não
+      try {
+        const ds = path.join(RAIZ, '07_LOGS/aprendizado/falar-com-a-rosa.jsonl');
+        fs.mkdirSync(path.dirname(ds), { recursive: true });
+        fs.appendFileSync(ds, JSON.stringify({ t: Date.now(), quem, nivel, conversa: convId, assunto: r.assunto || '', pergunta: texto, resposta: r.resposta.trim(), aprendizados, lacunas }) + '\n');
+      } catch { /* só registro */ }
+      const aprendizado = guardados.join(' · ');
+      const resposta = { de: 'rosa', txt: r.resposta.trim(), t: Date.now(), ...(aprendizado ? { aprendizado } : {}) };
       anotar(resposta);
-      responder(res, 200, { resposta: resposta.txt, aprendizado: resposta.aprendizado || null });
+      responder(res, 200, { resposta: resposta.txt, aprendizado: aprendizado || null });
     } catch (e) {
       responder(res, 502, { erro: e.message });
     } finally { emUso--; }
