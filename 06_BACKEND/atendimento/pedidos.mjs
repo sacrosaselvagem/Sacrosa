@@ -1,6 +1,7 @@
 // Pedidos da Shopify para o atendimento: acha o pedido pelo número + CPF da compra e traduz status e rastreio.
 // Os dois juntos são a "senha" da cliente: sem o CPF certo, nada do pedido é mostrado.
 // Configuração em 00_CORE/Configuration/shopify.json (nunca vai ao navegador):
+//   modo "desligado" -> sem loja: nenhum pedido (padrão até ligar a Shopify; nada de pedido fictício em produção)
 //   modo "teste"  -> pedidos fictícios de 07_LOGS/atendimento/pedidos-teste.json (criados na primeira vez)
 //   modo "loja"   -> Admin API (GraphQL) com access_token, ou client_id + client_secret (app do Dev Dashboard)
 //   node 06_BACKEND/atendimento/pedidos.mjs buscar 1002 12345678909   -> testa a busca
@@ -16,7 +17,7 @@ const TESTE = path.join(RAIZ, '07_LOGS/atendimento/pedidos-teste.json');
 
 const lerJson = (f, padrao) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return padrao; } };
 export const cfgShopify = () => lerJson(CFG, { modo: 'teste' });
-export const emTeste = () => cfgShopify().modo !== 'loja';
+export const emTeste = () => cfgShopify().modo === 'teste';
 const digitos = s => String(s ?? '').replace(/\D/g, '');
 const reais = n => `R$ ${Number(n || 0).toFixed(2).replace('.', ',')}`;
 const ddmm = iso => { const d = new Date(iso); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`; };
@@ -229,6 +230,7 @@ export function resumir(o) {
 // -> { ok: true, pedido } | { ok: false, motivo: 'nao-encontrado' | 'cpf-nao-confere' | 'sem-cpf-no-pedido' }
 export async function localizarPedido({ numero, cpf }) {
   const c = cfgShopify(), n = digitos(numero), doc = digitos(cpf);
+  if (c.modo !== 'loja' && c.modo !== 'teste') return { ok: false, motivo: 'loja-desligada' };
   const nodes = c.modo === 'loja'
     ? await pedidosDaLoja(c, `name:${c.prefixo_pedido ?? '#'}${n}`)
     : pedidosTeste().filter(o => digitos(o.name) === n);
@@ -242,6 +244,7 @@ export async function localizarPedido({ numero, cpf }) {
 
 export async function atualizarPedido(id) {
   const c = cfgShopify();
+  if (c.modo !== 'loja' && c.modo !== 'teste') return null;
   const o = c.modo === 'loja' ? await pedidoDaLojaPorId(c, id) : pedidosTeste().find(x => x.id === id);
   return o ? resumir(o) : null;
 }

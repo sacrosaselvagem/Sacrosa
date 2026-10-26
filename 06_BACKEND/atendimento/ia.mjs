@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { extrairIdentificacao, localizarPedido, atualizarPedido, paraPrompt, paraCard } from './pedidos.mjs';
+import { extrairIdentificacao, localizarPedido, atualizarPedido, paraPrompt, paraCard, cfgShopify } from './pedidos.mjs';
 import { acompanhar, atualizarCard } from './acompanhamento.mjs';
 
 export const ASSUNTOS = [
@@ -121,6 +121,9 @@ ${g.texto_ia}
 const MAX_TENTATIVAS = 3;
 async function contextoPedido(attrs, textosCliente) {
   const novos = {};
+  // sem a loja ligada, a IA não vê pedido nenhum: nunca inventa status
+  const modoLoja = cfgShopify().modo;
+  if (modoLoja !== 'loja' && modoLoja !== 'teste') return { novos, texto: 'A loja ainda não está ligada ao sistema: você não consegue ver pedidos. Se ela perguntar do pedido, peça o número do pedido, diga que alguém da equipe vai conferir e escale (assunto rastreio). Não invente status nem prazo de um pedido específico.' };
   try {
     if (attrs.pedido_id) {
       const p = await atualizarPedido(attrs.pedido_id);

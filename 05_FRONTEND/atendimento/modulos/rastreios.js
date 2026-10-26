@@ -45,7 +45,8 @@
     if (!el) return;
     const d = RS.dados, lista = d?.lista || [];
     const aviso = d?.teste
-      ? '<div class="nota-box">Modo de teste: os pedidos são fictícios (#1001 a #1004). Quando a loja for ligada, aparecem os pedidos de verdade.</div>' : '';
+      ? '<div class="nota-box">Modo de teste: os pedidos são fictícios (#1001 a #1004). Quando a loja for ligada, aparecem os pedidos de verdade.</div>'
+      : d && !d.loja_ligada ? '<div class="nota-box">A loja ainda não está ligada. Quando ligar a Shopify, a IA passa a acompanhar os pedidos das clientes até a entrega e eles aparecem aqui.</div>' : '';
     const corpo = RS.erro ? `<div class="erro">Não consegui carregar os rastreios: ${esc(RS.erro)}. Atualize a página.</div>`
       : !d ? '<div class="vazio">Carregando…</div>'
       : !lista.length ? '<div class="vazio"><strong>Nenhum pedido sendo acompanhado.</strong><span>Quando uma cliente manda o número do pedido e o CPF, a IA acha o pedido e passa a avisar ela de cada passo da entrega.</span></div>'
