@@ -110,11 +110,12 @@ async function rota(req, res) {
   let s = sessaoDe(req);
   // Sem login (chatwoot.json "login_obrigatorio": false, o padrão no teste): entra direto como a usuária de sistema.
   // Antes de ir para a VPS, ligue o login de novo.
-  // Pela internet (túnel da Cloudflare ou qualquer endereço que não seja este PC) o login é SEMPRE obrigatório,
-  // mesmo com login_obrigatorio false: senão qualquer pessoa entraria como administradora e veria tudo.
+  // Pela internet (túnel da Cloudflare ou qualquer endereço que não seja este PC) o login é obrigatório,
+  // mesmo com login_obrigatorio false: senão qualquer pessoa com o link entraria como administradora.
+  // Só para simulação, "login_livre_internet": true libera também pela internet (a dona pediu em 2026-10-26).
   const viaInternet = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for']
     || !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(req.headers.host || '');
-  if (!s && c.login_obrigatorio !== true && !viaInternet) {
+  if (!s && c.login_obrigatorio !== true && (!viaInternet || c.login_livre_internet === true)) {
     if (!usuariaSistema) {
       const p0 = await cw('profile', { base: 'api' });
       usuariaSistema = { id: null, token: c.token, userId: p0.id, nome: p0.available_name || p0.name, email: p0.email, papel: 'administrator', livre: true };
