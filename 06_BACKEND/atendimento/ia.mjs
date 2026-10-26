@@ -14,6 +14,9 @@ import { spawn } from 'node:child_process';
 import { extrairIdentificacao, localizarPedido, localizarPorChave, atualizarPedido, paraPrompt, paraCard, cfgShopify } from './pedidos.mjs';
 import { acompanhar, atualizarCard } from './acompanhamento.mjs';
 
+// toda conversa que a IA não resolve (escalou, foi barrada, deu erro, IA desligada ou no teto) ganha esta etiqueta
+export const ETIQUETA_HUMANO = 'atendimento';
+
 export const ASSUNTOS = [
   { id: 'reembolso', nome: 'Reembolso', desc: 'Quer o dinheiro de volta ou estorno' },
   { id: 'devolucao', nome: 'Devolução', desc: 'Quer devolver o produto' },
@@ -412,11 +415,18 @@ export function iniciarIA({ cfg, cw }) {
   }
 
   // manda um aviso curto e abre a conversa para a equipe, sem perguntar nada ao Claude
+  async function etiquetarAtendimento(id, atuais) {
+    const labels = atuais ?? (await cw(`conversations/${id}/labels`, { token: sistema() }).catch(() => ({ payload: [] }))).payload ?? [];
+    if (labels.includes(ETIQUETA_HUMANO)) return;
+    await cw(`conversations/${id}/labels`, { method: 'POST', body: { labels: [...labels, ETIQUETA_HUMANO] }, token: sistema() }).catch(e => log({ conversa: id, erro_etiqueta: e.message }));
+  }
+
   async function passarSemIA(c, motivo) {
     const aviso = cfg().ia?.mensagem_espera || 'Oi! Recebemos sua mensagem 💗 Já já alguém da nossa equipe te responde por aqui.';
     const jaAvisou = (c.messages || []).some(m => m.message_type === 1 && !m.private);
     if (!jaAvisou) await cw(`conversations/${c.id}/messages`, { method: 'POST', body: { content: aviso, message_type: 'outgoing' }, token: bot() }).catch(() => {});
     await cw(`conversations/${c.id}/custom_attributes`, { method: 'POST', body: { custom_attributes: { ...(c.custom_attributes || {}), motivo_ia: motivo } }, token: sistema() });
+    await etiquetarAtendimento(c.id, c.labels);
     await cw(`conversations/${c.id}/toggle_status`, { method: 'POST', body: { status: 'open' }, token: sistema() });
     log({ conversa: c.id, acao: 'escalar-sem-ia', motivo });
   }
@@ -445,7 +455,9 @@ export function iniciarIA({ cfg, cw }) {
         return `${quem}: ${m.content || ''}${anexo}`;
       });
       const fotosTxt = midia.imagens.length ? `\n\nAs ${midia.imagens.length === 1 ? 'foto que a cliente mandou está anexada' : `${midia.imagens.length} fotos que a cliente mandou estão anexadas, na ordem da conversa`}. Olhe com atenção antes de responder.` : '';
-      const conversa = `Nome da cliente: ${cliente}\nCanal: ${nomeCanal[canal]}\n\nConversa (da mais antiga para a mais nova):\n${linhas.join('\n')}${fotosTxt}\n\nResponda à última mensagem da cliente.`;
+      // memória da cliente (classificador.mjs): o que já se sabe dela de conversas anteriores
+      const memoria = c.meta?.sender?.custom_attributes?.memoria_ia;
+      const conversa = `Nome da cliente: ${cliente}\nCanal: ${nomeCanal[canal]}\n${memoria ? `O que já sabemos desta cliente (de conversas anteriores; use com naturalidade, sem dizer que "anotou"): ${memoria}\n` : ''}\nConversa (da mais antiga para a mais nova):\n${linhas.join('\n')}${fotosTxt}\n\nResponda à última mensagem da cliente.`;
       const ditos = msgs.filter(m => m.message_type === 0).flatMap(m => [m.content, ...(m.attachments || []).filter(a => a.file_type === 'audio').map(a => midia.textos.get(a.id)?.replace('[áudio transcrito] ', ''))]).filter(Boolean);
       const ped = await contextoPedido(c.custom_attributes || {}, ditos, canal === 'whatsapp' ? c.meta?.sender?.phone_number || '' : '');
       const r = await perguntarClaude(montarPrompt({ marca, canal: nomeCanal[canal], conversa, pedido: ped.texto }), conversa, cfg().ia?.modelo || 'opus', SCHEMA, midia.imagens);
@@ -478,7 +490,7 @@ export function iniciarIA({ cfg, cw }) {
         if (!attrs.sugestao_ia) { delete attrs.sugestao_ia; delete attrs.sugestao_fonte; }
       }
       await cw(`conversations/${id}/custom_attributes`, { method: 'POST', body: { custom_attributes: attrs }, token: sistema() });
-      const etiquetas = [...new Set([...(agora.labels || []), ...(r.assuntos || [])])];
+      const etiquetas = [...new Set([...(agora.labels || []), ...(r.assuntos || []), ...(acao.startsWith('escalar') ? [ETIQUETA_HUMANO] : [])])];
       await cw(`conversations/${id}/labels`, { method: 'POST', body: { labels: etiquetas }, token: sistema() });
       // o contato também guarda os assuntos, para a equipe achar depois em Contatos
       const contatoId = agora.meta?.sender?.id;
@@ -506,6 +518,7 @@ export function iniciarIA({ cfg, cw }) {
       log({ conversa: id, erro: e.message });
       // falhou: passa para a equipe em vez de deixar a cliente sem resposta
       await cw(`conversations/${id}/custom_attributes`, { method: 'POST', body: { custom_attributes: { motivo_ia: 'A IA não conseguiu responder' } }, token: sistema() }).catch(() => {});
+      await etiquetarAtendimento(id);
       await cw(`conversations/${id}/toggle_status`, { method: 'POST', body: { status: 'open' }, token: sistema() }).catch(() => {});
     } finally {
       // transcrição do áudio vira nota interna (uma vez por áudio), para a equipe ler sem ouvir

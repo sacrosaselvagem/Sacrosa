@@ -25,12 +25,25 @@ const CANAIS = {
 };
 
 const FILAS = [
-  { id: 'mim', nome: 'Minhas', titulo: 'Minhas conversas', desc: 'As conversas que estão com você.', ico: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' },
-  { id: 'precisam', nome: 'Precisam de alguém', titulo: 'Precisam de alguém', desc: 'Ninguém pegou ainda. A que espera há mais tempo fica no topo.', ico: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/>', alerta: true },
+  { id: 'mim', nome: 'Minhas', titulo: 'Minhas conversas', desc: 'As conversas que estão com você. As urgentes ficam no topo.', ico: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' },
+  { id: 'naoatendidas', nome: 'Não atendidas', titulo: 'Não atendidas', desc: 'A cliente falou por último e está esperando uma pessoa responder.', ico: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/>', alerta: true },
+  { id: 'precisam', nome: 'Não atribuídas', titulo: 'Não atribuídas', desc: 'Ninguém pegou ainda. Urgentes e quem espera há mais tempo ficam no topo.', ico: '<circle cx="12" cy="12" r="8.5" stroke-dasharray="3 3"/>', alerta: true },
+  { id: 'mencoes', nome: 'Menções', titulo: 'Menções', desc: 'Conversas em que alguém da equipe marcou você numa nota.', ico: '<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.5 6.9"/>' },
   { id: 'ia', nome: 'Com a IA', titulo: 'Com a IA', desc: 'A IA do SAC está respondendo. Você pode entrar quando quiser.', ico: BRILHO },
-  { id: 'todas', nome: 'Todas abertas', titulo: 'Todas abertas', desc: 'Tudo que está aberto, de todo mundo.', ico: '<path d="M4 5h16v11H8l-4 4z"/>' },
+  { id: 'todas', nome: 'Todas as conversas', titulo: 'Todas as conversas', desc: 'Tudo que está aberto, de todo mundo.', ico: '<path d="M4 5h16v11H8l-4 4z"/>' },
   { id: 'resolvidas', nome: 'Resolvidas hoje', titulo: 'Resolvidas hoje', desc: 'Se a cliente escrever de novo, a conversa reabre sozinha.', ico: '<path d="m5 12 4 4 10-10"/>' },
 ];
+// sinais que o classificador da IA marca em cada conversa (06_BACKEND/atendimento/classificador.mjs)
+const SINAIS = [
+  { id: 'urgente', nome: 'Urgentes', ico: '<path d="M12 3 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/>', teste: c => c.prioridade === 'urgente' },
+  { id: 'irritada', nome: 'Clientes irritadas', ico: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 16c1-1.3 2.2-2 3.5-2s2.5.7 3.5 2M8 9l2 1M16 9l-2 1"/>', teste: c => c.sentimento === 'irritada' },
+  { id: 'compra', nome: 'Querem comprar', ico: '<path d="M5 7h14l-1.5 9h-11z"/><path d="M9 7a3 3 0 0 1 6 0"/>', teste: c => c.compra },
+];
+const PESO_PRIO = { urgente: 0, alta: 1, normal: 2, baixa: 3 };
+const NOME_PRIO = { urgente: 'Urgente', alta: 'Alta', normal: 'Normal', baixa: 'Baixa' };
+const NOME_SENT = { irritada: 'Irritada', preocupada: 'Preocupada', neutra: 'Tranquila', feliz: 'Feliz' };
+let MENCOES = new Set();
+let LABELS = [];
 
 // ---------- páginas: registro ----------
 // Cada seção do menu é um módulo que se registra com registrarPagina() no próprio arquivo (modulos/*.js).
@@ -44,9 +57,9 @@ function registrarPagina(def) {
 }
 
 // ordem do menu da esquerda (igual ao Droni). Itens sem módulo carregado não aparecem.
-const MENU = ['caixa', 'conversas', 'rosa', 'simulador', 'rastreios', 'capitao', 'comentarios', 'contatos', 'relatorios', 'campanhas', 'ajuda', 'helpdesk', 'configuracoes'];
+const MENU = ['visao', 'caixa', 'conversas', 'rosa', 'simulador', 'rastreios', 'comentarios', 'contatos', 'relatorios', 'campanhas', 'ajuda', 'helpdesk', 'configuracoes'];
 // páginas que ficam dentro de Configurações
-const DENTRO_DE_CONFIG = ['configuracoes', 'integracoes', 'usuarios', 'equipe'];
+const DENTRO_DE_CONFIG = ['configuracoes', 'capitao', 'integracoes', 'usuarios', 'equipe'];
 
 let MEU_NIVEL = 'dona';
 const podeVer = id => id === 'conversas' || (MODULOS[id] && MODULOS[id].niveis.includes(MEU_NIVEL));
@@ -83,7 +96,9 @@ let ASSUNTOS = [
   { id: 'saude-e-reacao', nome: 'Saúde e reação' }, { id: 'reclamacao', nome: 'Reclamação' }, { id: 'revenda-e-parceria', nome: 'Revenda e parceria' },
   { id: 'elogio', nome: 'Elogio' }, { id: 'outro', nome: 'Outro' },
 ];
-const nomeAssunto = id => ASSUNTOS.find(a => a.id === id)?.nome || id.replace(/-/g, ' ');
+// a IA põe "atendimento" em toda conversa que ela não resolveu e passou para a equipe
+const ETIQUETA_HUMANO = 'atendimento';
+const nomeAssunto = id => id === ETIQUETA_HUMANO ? 'Atendimento' : ASSUNTOS.find(a => a.id === id)?.nome || id.replace(/-/g, ' ');
 
 const NIVEIS_NOMES = { dona: 'Dona', supervisora: 'Supervisora', atendente: 'Atendente' };
 const ROTULO_DISP = { online: 'Disponível', pausa: 'Em pausa', offline: 'Desconectada' };
@@ -276,6 +291,8 @@ function naFila(c, fila) {
   switch (fila) {
     case 'mim': return c.dono === EU && !c.resolvida;
     case 'precisam': return !c.dono && !c.resolvida;
+    case 'naoatendidas': return !c.resolvida && c.dono !== 'ia' && ultima(c).de === 'cliente';
+    case 'mencoes': return MENCOES.has(c.id);
     case 'ia': return c.dono === 'ia' && !c.resolvida;
     case 'todas': return !c.resolvida;
     case 'resolvidas': return !!c.resolvida;
@@ -289,8 +306,10 @@ function visiveis(fila = estado.fila) {
     .filter(c => !estado.canal || c.canal === estado.canal)
     .filter(c => !estado.assunto || c.etiquetas.includes(estado.assunto))
     .filter(c => !estado.time || c.time === estado.time)
+    .filter(c => !estado.sinal || SINAIS.find(x => x.id === estado.sinal)?.teste(c))
     .filter(c => !q || [c.cliente, c.pedido?.num, ...c.msgs.map(x => x.txt)].some(s => s && s.toLowerCase().includes(q)))
-    .sort((a, b) => fila === 'resolvidas' ? ultima(b).t - ultima(a).t : (espera(b) - espera(a)) || (ultima(b).t - ultima(a).t));
+    .sort((a, b) => fila === 'resolvidas' ? ultima(b).t - ultima(a).t
+      : ((PESO_PRIO[a.prioridade] ?? 2) - (PESO_PRIO[b.prioridade] ?? 2)) || (espera(b) - espera(a)) || (ultima(b).t - ultima(a).t));
 }
 
 // ---------- menu da esquerda ----------
@@ -314,15 +333,21 @@ function renderMenuLateral() {
       if (aberto) {
         const subs = FILAS.map(f => {
           const n = f.id === 'resolvidas' ? 0 : visiveis(f.id).length;
-          return itemMenu(f.id, f.nome, f.ico, { sub: true, on: pg === 'conversas' && estado.fila === f.id && !estado.canal && !estado.assunto, n, alerta: f.alerta, attr: `data-fila="${f.id}"` });
+          return itemMenu(f.id, f.nome, f.ico, { sub: true, on: pg === 'conversas' && estado.fila === f.id && !estado.canal && !estado.assunto && !estado.sinal, n, alerta: f.alerta, attr: `data-fila="${f.id}"` });
         });
         const abertas = estado.convs.filter(c => !c.resolvida && (estado.marca === 'todas' || c.marca === estado.marca));
-        const canais = Object.entries(CANAIS).map(([cid, ch]) => [cid, ch, abertas.filter(c => c.canal === cid).length]).filter(x => x[2]);
+        const sinais = SINAIS.map(x => [x, abertas.filter(x.teste).length]).filter(x => x[1]);
+        if (sinais.length) subs.push('<div class="sub-titulo">Atenção</div>', ...sinais.map(([x, n]) => itemMenu(x.id, x.nome, x.ico, { sub: true, on: estado.sinal === x.id, n, alerta: x.id !== 'compra', attr: `data-sinal="${x.id}"` })));
+        const comCaixa = new Set(Object.values(INBOX).map(i => i.canal));
+        const canais = Object.entries(CANAIS).map(([cid, ch]) => [cid, ch, abertas.filter(c => c.canal === cid).length]).filter(x => x[2] || comCaixa.has(x[0]));
         if (canais.length) subs.push('<div class="sub-titulo">Canais</div>', ...canais.map(([cid, ch, n]) => itemMenu(cid, ch.nome, ch.svg, { sub: true, on: estado.canal === cid, n, attr: `data-canal="${cid}"` })));
         const times = Object.entries(TIMES).map(([tid, nome]) => [Number(tid), nome, abertas.filter(c => c.time === Number(tid)).length]);
         if (times.length) subs.push('<div class="sub-titulo">Times</div>', ...times.map(([tid, nome, n]) => itemMenu(`t${tid}`, nome, '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.5 0 4.5 1.5 4.5 4"/>', { sub: true, on: estado.time === tid, n, attr: `data-time="${tid}"` })));
-        const assuntos = ASSUNTOS.map(a => [a, abertas.filter(c => c.etiquetas.includes(a.id)).length]).filter(x => x[1]).sort((a, b) => b[1] - a[1]);
-        if (assuntos.length) subs.push('<div class="sub-titulo">Assuntos</div>', ...assuntos.map(([a, n]) => itemMenu(a.id, a.nome, null, { sub: true, on: estado.assunto === a.id, n, attr: `data-assunto="${a.id}"` })));
+        // etiquetas: as da IA (assuntos), as criadas pela equipe no sistema e as que aparecem nas conversas
+        const ids = [...new Set([...ASSUNTOS.map(x => x.id), ...LABELS, ...abertas.flatMap(c => c.etiquetas)])];
+        const etiquetas = ids.map(id => [{ id, nome: nomeAssunto(id) }, abertas.filter(c => c.etiquetas.includes(id)).length])
+          .filter(x => x[1] || LABELS.includes(x[0].id)).sort((a, b) => b[1] - a[1] || a[0].nome.localeCompare(b[0].nome));
+        if (etiquetas.length) subs.push('<div class="sub-titulo">Etiquetas</div>', ...etiquetas.map(([a, n]) => itemMenu(a.id, a.nome, null, { sub: true, on: estado.assunto === a.id, n, attr: `data-assunto="${a.id}"` })));
         partes.push(`<div class="subs">${subs.join('')}</div>`);
       }
       continue;
@@ -368,6 +393,7 @@ function renderLista() {
   const filtros = [];
   if (estado.canal) filtros.push(`<button class="chip filtro" data-limpar="canal">${CANAIS[estado.canal].nome}${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button>`);
   if (estado.time) filtros.push(`<button class="chip filtro" data-limpar="time">${esc(nomeTime(estado.time))}${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button>`);
+  if (estado.sinal) filtros.push(`<button class="chip filtro" data-limpar="sinal">${esc(SINAIS.find(x => x.id === estado.sinal)?.nome || '')}${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button>`);
   if (estado.assunto) filtros.push(`<button class="chip filtro" data-limpar="assunto">${esc(nomeAssunto(estado.assunto))}${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button>`);
   $('#filtros-ativos').innerHTML = filtros.join('');
   $('#filtros-ativos').hidden = !filtros.length;
@@ -375,12 +401,14 @@ function renderLista() {
   const lista = visiveis();
   if (!lista.length) {
     const vazio = {
-      mim: ['Nenhuma conversa com você', 'Pegue uma em “Precisam de alguém”.'],
+      naoatendidas: ['Ninguém esperando', 'Toda cliente que falou por último já teve resposta.'],
+      mencoes: ['Nenhuma menção', 'Quando alguém marcar você numa nota, a conversa aparece aqui.'],
+      mim: ['Nenhuma conversa com você', 'Pegue uma em “Não atribuídas”.'],
       precisam: ['Todo mundo foi atendido', 'Quando a IA pedir ajuda ou chegar alguém sem dono, aparece aqui.'],
       ia: ['A IA não está em nenhuma conversa', 'As conversas novas passam primeiro por ela.'],
       resolvidas: ['Nada resolvido hoje ainda', 'Ao resolver uma conversa, ela vem para cá.'],
     }[estado.fila] || ['Nenhuma conversa aberta', ''];
-    const filtro = estado.busca || estado.canal || estado.assunto || estado.marca !== 'todas';
+    const filtro = estado.busca || estado.canal || estado.assunto || estado.sinal || estado.marca !== 'todas';
     $('#convs').innerHTML = `<li class="vazio"><strong>${filtro ? 'Nada com esse filtro' : vazio[0]}</strong><span>${filtro ? 'Tire os filtros acima ou troque a fila.' : vazio[1]}</span></li>`;
     return;
   }
@@ -390,10 +418,13 @@ function renderLista() {
     const cls = e > 30 ? 'atrasado' : e > 10 ? 'quase' : '';
     const prefixo = { cliente: '', evento: '', ia: 'IA: ', nota: 'Nota: ' }[u.de] ?? `${nomeCurto(u.quem)}: `;
     const tags = [];
+    if (!c.resolvida && (c.prioridade === 'urgente' || c.prioridade === 'alta')) tags.push(`<span class="chip prio-${c.prioridade}">${NOME_PRIO[c.prioridade]}</span>`);
+    if (!c.resolvida && c.sentimento === 'irritada') tags.push('<span class="chip sent-irritada">Irritada</span>');
+    if (!c.resolvida && c.compra) tags.push('<span class="chip compra">Quer comprar</span>');
     if (c.escalou && !c.resolvida && c.dono !== EU) tags.push(`<span class="chip alerta">${esc(c.escalou)}</span>`);
     else if (!c.dono && !c.resolvida) tags.push('<span class="chip aviso">Ninguém pegou</span>');
     if (mostrarDono && c.dono) tags.push(`<span class="chip">${avatar(c.dono, 'sm')}${esc(nomeCurto(c.dono))}</span>`);
-    c.etiquetas.slice(0, 2).forEach(t => tags.push(`<span class="chip">${esc(nomeAssunto(t))}</span>`));
+    c.etiquetas.slice(0, tags.length > 2 ? 1 : 2).forEach(t => tags.push(`<span class="chip">${esc(nomeAssunto(t))}</span>`));
     return `<li class="conv${estado.aberta === c.id ? ' on' : ''}${c.naoLidas ? '' : ' lida'}" data-id="${c.id}" tabindex="0" aria-current="${estado.aberta === c.id}">
       ${avatar2(c)}
       <span class="canal-mini">${canalIco(c.canal)}</span>
@@ -544,6 +575,12 @@ function renderCtx() {
       <strong>${esc(c.cliente)}</strong>
       <span class="muted" style="font-size:12.5px">${c.dono ? `Com ${esc(c.dono === 'ia' ? 'a IA do SAC' : c.dono === EU ? 'você' : pessoa(c.dono).nome)}` : 'Sem dono'}</span>
     </div>
+    ${c.prioridade || c.sentimento || c.produtos ? `<div class="ctx-bloco"><h3>Leitura da IA</h3><div class="leitura">
+      ${c.prioridade ? `<span class="chip prio-${esc(c.prioridade)}">Prioridade ${esc((NOME_PRIO[c.prioridade] || c.prioridade).toLowerCase())}</span>` : ''}
+      ${c.sentimento ? `<span class="chip sent-${esc(c.sentimento)}">${esc(NOME_SENT[c.sentimento] || c.sentimento)}</span>` : ''}
+      ${c.compra ? '<span class="chip compra">Quer comprar</span>' : ''}
+      ${c.produtos ? `<span class="chip">${esc(c.produtos)}</span>` : ''}</div></div>` : ''}
+    ${c.memoria ? `<div class="ctx-bloco"><h3>O que a IA lembra dela</h3><p class="resumo memoria">${esc(c.memoria)}</p></div>` : ''}
     ${c.resumo ? `<div class="ctx-bloco"><h3>Resumo da IA</h3><p class="resumo">${esc(c.resumo)}</p></div>` : ''}
     ${c.observacao && !c.resolvida ? `<div class="ctx-bloco"><h3>Atenção</h3><p class="resumo">${esc(c.observacao)}</p></div>` : ''}
     <div class="ctx-bloco"><h3>Último pedido</h3>${pedido}</div>
@@ -569,7 +606,7 @@ function renderEquipe() {
     </div>`);
   $('#pag-equipe').innerHTML = `<div class="pag-in">
     <div class="pag-head" style="align-items:flex-start"><button class="btn icone fantasma abrir-menu" data-acao="menu-lateral" aria-label="Abrir menu"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><div><h1>Equipe</h1><p>Quem está atendendo agora e quantas conversas cada pessoa tem. Para passar uma conversa, abra a conversa e use o menu de três pontos.</p></div></div>
-    <div class="resumo-num">${num('Abertas', abertas.length)}${num('Precisam de alguém', abertas.filter(c => !c.dono).length)}${num('Com a IA', carga('ia'))}${num('Resolvidas hoje', estado.convs.filter(c => c.resolvida).length)}</div>
+    <div class="resumo-num">${num('Abertas', abertas.length)}${num('Não atribuídas', abertas.filter(c => !c.dono).length)}${num('Com a IA', carga('ia'))}${num('Resolvidas hoje', estado.convs.filter(c => c.resolvida).length)}</div>
     <div class="secao">Pessoas</div>
     <div class="pessoas">${cards.join('')}</div>
   </div>`;
@@ -594,6 +631,7 @@ function render() {
   renderMenuLateral();
   if (estado.pagina === 'conversas') { renderLista(); renderChat(); renderCtx(); }
   else if (estado.pagina === 'equipe') renderEquipe();
+  else if (estado.pagina === 'visao' && MODULOS.visao) MODULOS.visao.render(pagEl('visao'));
 }
 
 // ---------- Chatwoot ----------
@@ -689,6 +727,9 @@ function convDe(x, antiga) {
     resumo: ca.resumo_ia || '', observacao: ca.observacao_ia || '', pedido: lerObjeto(s.custom_attributes?.ultimo_pedido),
     rascunho: ca.sugestao_ia ? { txt: ca.sugestao_ia, fonte: ca.sugestao_fonte || 'Base de conhecimento do SAC' } : null,
     podeResponder: x.can_reply !== false, inbox: x.inbox_id,
+    prioridade: ca.prioridade_ia || null, sentimento: ca.sentimento_ia || null,
+    compra: ca.intencao_compra_ia === true || ca.intencao_compra_ia === 'true', produtos: ca.produtos_ia || '',
+    memoria: s.custom_attributes?.memoria_ia || '',
     attrs: ca, esperaDesde: x.waiting_since ? x.waiting_since * 1000 : 0, criada: (x.created_at || 0) * 1000,
     msgs: ult ? [msgDe(ult)] : [], carregada: false,
   };
@@ -712,6 +753,7 @@ async function carregarBase() {
   if (EQUIPE[EU]) EQUIPE[EU].status = estado.eu;
   const times = await cw('teams').catch(() => []);
   TIMES = Object.fromEntries((times || []).map(t => [t.id, t.name.charAt(0).toUpperCase() + t.name.slice(1)]));
+  LABELS = ((await cw('labels').catch(() => null))?.payload || []).map(l => l.title);
   for (const ib of inboxes.payload || []) INBOX[ib.id] = { canal: canalDoInbox(ib), marca: /beyoung/i.test(ib.name) ? 'beyoung' : 'rosa', nome: ib.name, tipo: ib.channel_type };
 }
 
@@ -724,9 +766,15 @@ async function carregarConversas() {
     todas.push(...lote);
     if (lote.length < 25) break;
   }
+  // menções: o próprio Chatwoot sabe em quais conversas você foi marcada numa nota
+  try {
+    const r = await cw('conversations?conversation_type=mention&status=all&assignee_type=all&page=1');
+    MENCOES = new Set((r.data?.payload || []).map(x => x.id));
+    for (const x of r.data?.payload || []) if (!todas.some(y => y.id === x.id)) todas.push(x);
+  } catch { /* sem menções: a fila fica vazia */ }
   const antes = new Map(estado.convs.map(c => [c.id, c]));
   estado.convs = todas
-    .filter(x => x.status !== 'resolved' || (x.last_activity_at || 0) * 1000 >= hoje.getTime() || x.id === estado.aberta)
+    .filter(x => x.status !== 'resolved' || (x.last_activity_at || 0) * 1000 >= hoje.getTime() || x.id === estado.aberta || MENCOES.has(x.id))
     .map(x => convDe(x, antes.get(x.id)));
   // conversa aberta que não veio na lista (resolvida há dias, aberta por um aviso ou contato) continua na tela
   const aberta = antes.get(estado.aberta);
@@ -762,7 +810,7 @@ const conv = () => estado.convs.find(x => x.id === estado.aberta);
 const nomeDe = id => id === 'ia' ? 'a IA do SAC' : id === EU ? 'você' : pessoa(id).nome;
 const avisoPassar = para => para === 'ia' ? 'A IA do SAC voltou a cuidar desta conversa.'
   : para === EU ? 'Conversa assumida. Ela está em Minhas.'
-  : para ? `Conversa passada para ${nomeDe(para)}.` : 'A conversa foi para Precisam de alguém.';
+  : para ? `Conversa passada para ${nomeDe(para)}.` : 'A conversa foi para Não atribuídas.';
 const telaPequena = () => window.innerWidth <= 980;
 const vista = v => { $('#conversas').dataset.view = v; };
 
@@ -792,13 +840,15 @@ function passar(c, para) {
       await atribuir(c, null);
       await mudarStatus(c, 'pending');
       if (c.attrs?.motivo_ia || c.attrs?.sugestao_ia) await gravarAttrs(c, semIA(c.attrs));
+      // voltou para a IA: sai da etiqueta de atendimento (ela põe de novo se escalar outra vez)
+      if (c.etiquetas.includes(ETIQUETA_HUMANO)) await cw(`conversations/${c.id}/labels`, 'POST', { labels: c.etiquetas.filter(x => x !== ETIQUETA_HUMANO) });
     } else {
       if (c.dono === 'ia') await mudarStatus(c, 'open');
       await atribuir(c, para || null);
     }
   }, () => {
     c.dono = para || null;
-    if (para === 'ia') c.escalou = null;
+    if (para === 'ia') { c.escalou = null; c.etiquetas = c.etiquetas.filter(x => x !== ETIQUETA_HUMANO); }
     const quem = pessoa(EU).nome;
     evento(c, para === 'ia' ? `${quem} devolveu para a IA` : para === EU ? `${quem} assumiu a conversa` : para ? `${quem} passou para ${pessoa(para).nome}` : `${quem} deixou sem dono`);
   }, avisoPassar(para));
@@ -875,7 +925,7 @@ window.addEventListener('hashchange', () => {
 document.addEventListener('click', e => {
   const ex = e.target.closest('[data-expandir]');
   if (ex) { e.stopPropagation(); estado.expandido[ex.dataset.expandir] = !estado.expandido[ex.dataset.expandir]; renderMenuLateral(); return; }
-  const el = e.target.closest('[data-fila],[data-pagina],[data-id],[data-acao],[data-passar],[data-modo],[data-resp],[data-disp],[data-canal],[data-assunto],[data-time],[data-limpar]');
+  const el = e.target.closest('[data-fila],[data-pagina],[data-id],[data-acao],[data-passar],[data-modo],[data-resp],[data-disp],[data-canal],[data-assunto],[data-time],[data-sinal],[data-limpar]');
   if (!el) {
     if (estado.menu) { estado.menu = false; renderChat(); }
     if (estado.menuEu) { estado.menuEu = false; renderMenuLateral(); }
@@ -883,11 +933,11 @@ document.addEventListener('click', e => {
     return;
   }
   const d = el.dataset;
-  if (d.fila) { estado.fila = d.fila; estado.aberta = null; vista('lista'); irPara('conversas'); render(); return; }
+  if (d.fila) { estado.fila = d.fila; estado.sinal = null; estado.aberta = null; vista('lista'); irPara('conversas'); render(); return; }
   if (d.pagina) { irPara(d.pagina); return; }
   // canal e assunto da lateral: mostram todas as abertas daquele tipo; clicar de novo tira o filtro
-  if (d.canal || d.assunto || d.time) {
-    const campo = d.canal ? 'canal' : d.assunto ? 'assunto' : 'time', valor = d.canal || d.assunto || Number(d.time);
+  if (d.canal || d.assunto || d.time || d.sinal) {
+    const campo = d.canal ? 'canal' : d.assunto ? 'assunto' : d.sinal ? 'sinal' : 'time', valor = d.canal || d.assunto || d.sinal || Number(d.time);
     estado[campo] = estado[campo] === valor ? null : valor;
     if (estado[campo] && estado.fila !== 'resolvidas') estado.fila = 'todas';
     estado.aberta = null; vista('lista'); irPara('conversas'); render(); return;

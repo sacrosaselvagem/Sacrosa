@@ -7,8 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
-import { iniciarIA, ASSUNTOS } from './ia.mjs';
+import { iniciarIA, ASSUNTOS, ETIQUETA_HUMANO } from './ia.mjs';
 import { iniciarAcompanhamento } from './acompanhamento.mjs';
+import { iniciarClassificador } from './classificador.mjs';
 
 const PORTA = Number(process.env.RS_PORTA) || 8790;
 const HOST = process.env.RS_HOST || '127.0.0.1'; // na VPS (Docker) é 0.0.0.0, atrás do Caddy
@@ -241,6 +242,7 @@ async function criarEtiquetas() {
   for (const a of ASSUNTOS) {
     if (!existentes.has(a.id)) await cw('labels', { method: 'POST', body: { title: a.id, description: `${a.nome}: ${a.desc}`, color: '#71717A', show_on_sidebar: true } }).catch(() => {});
   }
+  if (!existentes.has(ETIQUETA_HUMANO)) await cw('labels', { method: 'POST', body: { title: ETIQUETA_HUMANO, description: 'Atendimento: a IA não resolveu sozinha e passou para a equipe', color: '#F59E0B', show_on_sidebar: true } }).catch(() => {});
 }
 
 // a tela do atendimento também é servida aqui (mais rápido que o painel, que atende um pedido por vez)
@@ -266,3 +268,4 @@ http.createServer((req, res) => {
 criarEtiquetas().catch(e => console.error('etiquetas:', e.message));
 iniciarIA({ cfg, cw });
 iniciarAcompanhamento({ cfg, cw });
+iniciarClassificador({ cfg, cw });
