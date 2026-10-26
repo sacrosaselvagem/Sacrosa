@@ -305,8 +305,12 @@ export async function localizarPorChave({ cpf, email, telefone }) {
   } else if (tel) nodes = await pedidosPorTelefone(c, tel);
   else if (mail) nodes = await pedidosDaLoja(c, `email:${mail}`);
   else if (doc) {
-    const ids = (await pedidosRecentes(c)).filter(o => cpfsDoPedido(o).has(doc)).map(o => o.id);
-    for (const id of ids.slice(0, 3)) { const o = await pedidoDaLojaPorId(c, id); if (o) nodes.push(o); }
+    // a busca de texto da Shopify acha o CPF (fica em additional_cpf_cnpj e no campo empresa); confere antes de aceitar
+    const fmt = doc.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    for (const termo of [doc, fmt]) {
+      nodes = (await pedidosDaLoja(c, termo)).filter(o => cpfsDoPedido(o).has(doc));
+      if (nodes.length) break;
+    }
   }
   if (tel) nivel = 'completo';
   const vivos = nodes.filter(o => !o.cancelledAt).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

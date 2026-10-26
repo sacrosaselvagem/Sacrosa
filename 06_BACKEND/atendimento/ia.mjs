@@ -123,18 +123,19 @@ ${g.texto_ia}
 // ou só o CPF / só o e-mail da compra (libera status e rastreio, sem itens, valor, nome e cidade).
 // Na conversa ficam pedido_id / pedido_num / pedido_nivel (já identificada) e pedido_tentativas (erros), para não deixar adivinhar.
 const MAX_TENTATIVAS = 3;
+const NAO_ACHOU = 'Diga com carinho, com estas palavras ou parecidas, que você não conseguiu localizar o pedido';
 async function contextoPedido(attrs, textosCliente, telefone = '') {
   const novos = {};
   // sem a loja ligada, a IA não vê pedido nenhum: nunca inventa status
   const modoLoja = cfgShopify().modo;
-  if (modoLoja !== 'loja' && modoLoja !== 'teste') return { novos, texto: 'A loja ainda não está ligada ao sistema: você não consegue ver pedidos. Se ela perguntar do pedido, peça o número do pedido, diga que alguém da equipe vai conferir e escale (assunto rastreio). Não invente status nem prazo de um pedido específico.' };
+  if (modoLoja !== 'loja' && modoLoja !== 'teste') return { novos, texto: `A loja ainda não está ligada ao sistema: você não consegue ver pedidos. Se ela perguntar do pedido: ${NAO_ACHOU} e que uma pessoa da equipe vai verificar e responder por aqui; escale (assunto rastreio). Não invente status nem prazo.` };
   try {
     if (attrs.pedido_id) {
       const p = await atualizarPedido(attrs.pedido_id);
       if (p) return { pedido: p, novos, texto: `A cliente já se identificou nesta conversa. Dados atualizados agora do sistema:\n${paraPrompt(p, attrs.pedido_nivel || 'completo')}` };
     }
     const tentativas = Number(attrs.pedido_tentativas || 0);
-    if (tentativas >= MAX_TENTATIVAS) return { novos, texto: `A cliente já errou o número do pedido ou o CPF ${tentativas} vezes. Não procure mais: diga com carinho que vai pedir para alguém da equipe localizar e escale (assunto rastreio).` };
+    if (tentativas >= MAX_TENTATIVAS) return { novos, texto: `A busca do pedido já falhou ${tentativas} vezes. Não procure mais: ${NAO_ACHOU} e que uma pessoa da equipe vai localizar e responder por aqui; escale (assunto rastreio).` };
     const { cpf, numero, email } = extrairIdentificacao(textosCliente);
     // o número do WhatsApp dela é o mesmo da compra: acha sem perguntar nada
     if (telefone && !attrs.pedido_tel_conferido) {
@@ -156,7 +157,8 @@ async function contextoPedido(attrs, textosCliente, telefone = '') {
       if (attrs.pedido_ultima_tentativa !== combo) Object.assign(novos, { pedido_tentativas: tentativas + 1, pedido_ultima_tentativa: combo });
       const porque = { 'nao-encontrado': 'nenhum pedido com esse número', 'cpf-nao-confere': 'o CPF não confere com o do pedido', 'sem-cpf-no-pedido': 'o pedido existe, mas não tem CPF gravado para conferir' }[r.motivo];
       if (r.motivo === 'sem-cpf-no-pedido') return { novos, texto: `Não deu para conferir a identidade (${porque}). Não passe nenhum dado do pedido: diga que alguém da equipe vai confirmar e escale (assunto rastreio).` };
-      return { novos, texto: `A cliente mandou o pedido ${numero} e um CPF, mas não bateu (${porque}; tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). Não diga qual dos dois está errado nem se o pedido existe. Peça com leveza para ela conferir o número do pedido (está no e-mail de confirmação da compra) e o CPF usado na compra.` };
+      if (tentativas + 1 >= MAX_TENTATIVAS) return { novos, texto: `Não deu para localizar com o número ${numero} e o CPF que ela mandou (${porque}). ${NAO_ACHOU} e que uma pessoa da equipe vai verificar e responder por aqui; escale (assunto rastreio).` };
+      return { novos, texto: `A cliente mandou o pedido ${numero} e um CPF, mas não bateu (${porque}; tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). ${NAO_ACHOU} com esses dados (sem dizer qual dos dois está errado) e peça para ela conferir o número do pedido (está no e-mail de confirmação) e o CPF da compra.` };
     }
     if (cpf || email) {
       const chave = cpf ? `cpf:${cpf.slice(-4)}` : `email:${email}`;
@@ -166,13 +168,15 @@ async function contextoPedido(attrs, textosCliente, telefone = '') {
         return { pedido: r.pedido, novos, texto: `Pedido mais recente achado pelo ${cpf ? 'CPF' : 'e-mail'} da compra${r.outros ? ` (há mais ${r.outros} pedido(s) em aberto; se ela falar de outro, peça o número)` : ''}:\n${paraPrompt(r.pedido, 'parcial')}` };
       }
       if (attrs.pedido_ultima_tentativa !== chave) Object.assign(novos, { pedido_tentativas: tentativas + 1, pedido_ultima_tentativa: chave });
-      return { novos, texto: `A cliente mandou ${cpf ? 'um CPF' : 'um e-mail'}, mas não achei pedido com ele (tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). Não diga se existe ou não cadastro. Peça com leveza para ela conferir ${cpf ? 'o CPF usado na compra' : 'o e-mail usado na compra'} ou mandar o número do pedido (está no e-mail de confirmação).` };
+      const qual = cpf ? 'esse CPF' : 'esse e-mail', outro = cpf ? 'o e-mail usado na compra' : 'o CPF usado na compra';
+      if (tentativas + 1 >= MAX_TENTATIVAS) return { novos, texto: `Não achei pedido com ${qual} (tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). ${NAO_ACHOU} com ${qual} e que uma pessoa da equipe vai verificar e responder por aqui; escale (assunto rastreio).` };
+      return { novos, texto: `Não achei pedido com ${qual} (tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). ${NAO_ACHOU} com ${qual} e peça para ela conferir se digitou certo, ou mandar ${outro} ou o número do pedido (está no e-mail de confirmação).` };
     }
     if (numero) return { novos, texto: `A cliente mandou o número do pedido (${numero}), mas ainda não o CPF. Para localizar, peça o CPF usado na compra, de um jeito natural.` };
     return { novos, texto: 'Nenhum pedido identificado ainda. Se ela quiser saber do pedido, peça o CPF ou o e-mail usado na compra (um dos dois basta), numa frase só e de um jeito natural.' };
   } catch (e) {
     log({ erro_pedido: e.message });
-    return { novos, texto: 'O sistema de pedidos não respondeu agora. Não invente status: diga que vai conferir com a equipe e escale (assunto rastreio).' };
+    return { novos, texto: `O sistema de pedidos não respondeu agora. Não invente status: ${NAO_ACHOU} agora e que uma pessoa da equipe vai verificar e responder por aqui; escale (assunto rastreio).` };
   }
 }
 
@@ -421,6 +425,19 @@ export function iniciarIA({ cfg, cw }) {
     await cw(`conversations/${id}/labels`, { method: 'POST', body: { labels: [...labels, ETIQUETA_HUMANO] }, token: sistema() }).catch(e => log({ conversa: id, erro_etiqueta: e.message }));
   }
 
+  // chamado: nota interna que menciona toda a equipe (cada uma recebe o aviso). Ninguém fica com a conversa antes:
+  // quem responder primeiro assume (a distribuição automática fica desligada em Configurações > Geral).
+  let equipeCache = { ate: 0, lista: [] };
+  async function chamarEquipe(id, motivo, resumo) {
+    if (Date.now() > equipeCache.ate) {
+      const a = await cw('agents', { token: sistema() }).catch(() => null);
+      if (Array.isArray(a)) equipeCache = { ate: Date.now() + 5 * 60e3, lista: a.filter(x => x.confirmed !== false) };
+    }
+    const mencoes = equipeCache.lista.map(x => `[@${x.available_name || x.name}](mention://user/${x.id}/${encodeURIComponent(x.available_name || x.name)})`).join(' ');
+    const texto = [`Chamado #${id}: ${motivo || 'a IA não resolveu sozinha'}.`, resumo ? `Resumo: ${resumo}` : '', 'Quem responder primeiro fica com a conversa.', mencoes].filter(Boolean).join('\n');
+    await cw(`conversations/${id}/messages`, { method: 'POST', body: { content: texto, message_type: 'outgoing', private: true }, token: sistema() }).catch(e => log({ conversa: id, erro_chamado: e.message }));
+  }
+
   async function passarSemIA(c, motivo) {
     const aviso = cfg().ia?.mensagem_espera || 'Oi! Recebemos sua mensagem 💗 Já já alguém da nossa equipe te responde por aqui.';
     const jaAvisou = (c.messages || []).some(m => m.message_type === 1 && !m.private);
@@ -428,6 +445,7 @@ export function iniciarIA({ cfg, cw }) {
     await cw(`conversations/${c.id}/custom_attributes`, { method: 'POST', body: { custom_attributes: { ...(c.custom_attributes || {}), motivo_ia: motivo } }, token: sistema() });
     await etiquetarAtendimento(c.id, c.labels);
     await cw(`conversations/${c.id}/toggle_status`, { method: 'POST', body: { status: 'open' }, token: sistema() });
+    await chamarEquipe(c.id, motivo);
     log({ conversa: c.id, acao: 'escalar-sem-ia', motivo });
   }
 
@@ -510,6 +528,7 @@ export function iniciarIA({ cfg, cw }) {
         time = timeDoAssunto(r.assuntos || []);
         if (time) await cw(`conversations/${id}/assignments`, { method: 'POST', body: { team_id: time }, token: sistema() }).catch(e => log({ conversa: id, erro_time: e.message }));
         await cw(`conversations/${id}/toggle_status`, { method: 'POST', body: { status: 'open' }, token: sistema() });
+        await chamarEquipe(id, attrs.motivo_ia, r.resumo);
       }
       if (r.pergunta_sem_resposta?.trim()) try { anotarPergunta(r.pergunta_sem_resposta.trim()); } catch { /* o Cérebro pode estar aberto no Obsidian */ }
 
@@ -520,6 +539,7 @@ export function iniciarIA({ cfg, cw }) {
       await cw(`conversations/${id}/custom_attributes`, { method: 'POST', body: { custom_attributes: { motivo_ia: 'A IA não conseguiu responder' } }, token: sistema() }).catch(() => {});
       await etiquetarAtendimento(id);
       await cw(`conversations/${id}/toggle_status`, { method: 'POST', body: { status: 'open' }, token: sistema() }).catch(() => {});
+      await chamarEquipe(id, 'a IA não conseguiu responder');
     } finally {
       // transcrição do áudio vira nota interna (uma vez por áudio), para a equipe ler sem ouvir
       for (const n of midia.notas) {
