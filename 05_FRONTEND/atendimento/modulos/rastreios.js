@@ -49,7 +49,7 @@
       : d && !d.loja_ligada ? '<div class="nota-box">A loja ainda não está ligada. Quando ligar a Shopify, a IA passa a acompanhar os pedidos das clientes até a entrega e eles aparecem aqui.</div>' : '';
     const corpo = RS.erro ? `<div class="erro">Não consegui carregar os rastreios: ${esc(RS.erro)}. Atualize a página.</div>`
       : !d ? '<div class="vazio">Carregando…</div>'
-      : !lista.length ? '<div class="vazio"><strong>Nenhum pedido sendo acompanhado.</strong><span>Quando uma cliente manda o número do pedido e o CPF, a IA acha o pedido e passa a avisar ela de cada passo da entrega.</span></div>'
+      : !lista.length ? '<div class="vazio"><strong>Nenhum pedido sendo acompanhado.</strong><span>Quando a IA acha o pedido de uma cliente (pelo WhatsApp da compra, pelo CPF ou pelo e-mail), passa a avisar ela de cada passo da entrega.</span></div>'
       : `<div class="grade rastreios-grade">${lista.map(cartao).join('')}</div>`;
     el.innerHTML = `<div class="pag-in">${cabecalho('Rastreios', 'Pedidos que a IA acompanha até a entrega. A cliente recebe um aviso na conversa a cada passo, menos de madrugada.')}
       ${aviso}${corpo}</div>`;

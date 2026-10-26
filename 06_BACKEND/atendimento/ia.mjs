@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { extrairIdentificacao, localizarPedido, atualizarPedido, paraPrompt, paraCard, cfgShopify } from './pedidos.mjs';
+import { extrairIdentificacao, localizarPedido, localizarPorChave, atualizarPedido, paraPrompt, paraCard, cfgShopify } from './pedidos.mjs';
 import { acompanhar, atualizarCard } from './acompanhamento.mjs';
 
 export const ASSUNTOS = [
@@ -116,10 +116,11 @@ ${g.texto_ia}
 }
 
 // ---------- pedido da cliente (Shopify) ----------
-// O número do pedido e o CPF da compra, juntos, liberam o pedido. Sem os dois, a IA pede o que falta.
-// Na conversa ficam pedido_id / pedido_num (já identificada) e pedido_tentativas (erros), para não deixar adivinhar.
+// Acha o pedido por: telefone do WhatsApp igual ao da compra, número + CPF (os dois liberam tudo),
+// ou só o CPF / só o e-mail da compra (libera status e rastreio, sem itens, valor, nome e cidade).
+// Na conversa ficam pedido_id / pedido_num / pedido_nivel (já identificada) e pedido_tentativas (erros), para não deixar adivinhar.
 const MAX_TENTATIVAS = 3;
-async function contextoPedido(attrs, textosCliente) {
+async function contextoPedido(attrs, textosCliente, telefone = '') {
   const novos = {};
   // sem a loja ligada, a IA não vê pedido nenhum: nunca inventa status
   const modoLoja = cfgShopify().modo;
@@ -127,16 +128,25 @@ async function contextoPedido(attrs, textosCliente) {
   try {
     if (attrs.pedido_id) {
       const p = await atualizarPedido(attrs.pedido_id);
-      if (p) return { pedido: p, novos, texto: `A cliente já se identificou nesta conversa. Dados atualizados agora do sistema:\n${paraPrompt(p)}` };
+      if (p) return { pedido: p, novos, texto: `A cliente já se identificou nesta conversa. Dados atualizados agora do sistema:\n${paraPrompt(p, attrs.pedido_nivel || 'completo')}` };
     }
     const tentativas = Number(attrs.pedido_tentativas || 0);
     if (tentativas >= MAX_TENTATIVAS) return { novos, texto: `A cliente já errou o número do pedido ou o CPF ${tentativas} vezes. Não procure mais: diga com carinho que vai pedir para alguém da equipe localizar e escale (assunto rastreio).` };
-    const { cpf, numero } = extrairIdentificacao(textosCliente);
+    const { cpf, numero, email } = extrairIdentificacao(textosCliente);
+    // o número do WhatsApp dela é o mesmo da compra: acha sem perguntar nada
+    if (telefone && !attrs.pedido_tel_conferido) {
+      novos.pedido_tel_conferido = true;
+      const r = await localizarPorChave({ telefone });
+      if (r.ok) {
+        Object.assign(novos, { pedido_id: r.pedido.id, pedido_num: r.pedido.num, pedido_nivel: 'completo', pedido_tentativas: 0 });
+        return { pedido: r.pedido, novos, texto: `Pedido mais recente do número de WhatsApp dela (é o mesmo telefone da compra)${r.outros ? `; ela tem mais ${r.outros} pedido(s) em aberto, se ela falar de outro peça o número` : ''}:\n${paraPrompt(r.pedido)}` };
+      }
+    }
     if (cpf && numero) {
       const combo = `${numero}:${cpf.slice(-4)}`;
       const r = await localizarPedido({ numero, cpf });
       if (r.ok) {
-        Object.assign(novos, { pedido_id: r.pedido.id, pedido_num: r.pedido.num, pedido_tentativas: 0 });
+        Object.assign(novos, { pedido_id: r.pedido.id, pedido_num: r.pedido.num, pedido_nivel: 'completo', pedido_tentativas: 0 });
         return { pedido: r.pedido, novos, texto: `Pedido localizado agora, com número e CPF conferidos:\n${paraPrompt(r.pedido)}` };
       }
       // a mesma tentativa errada não conta duas vezes
@@ -145,9 +155,18 @@ async function contextoPedido(attrs, textosCliente) {
       if (r.motivo === 'sem-cpf-no-pedido') return { novos, texto: `Não deu para conferir a identidade (${porque}). Não passe nenhum dado do pedido: diga que alguém da equipe vai confirmar e escale (assunto rastreio).` };
       return { novos, texto: `A cliente mandou o pedido ${numero} e um CPF, mas não bateu (${porque}; tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). Não diga qual dos dois está errado nem se o pedido existe. Peça com leveza para ela conferir o número do pedido (está no e-mail de confirmação da compra) e o CPF usado na compra.` };
     }
+    if (cpf || email) {
+      const chave = cpf ? `cpf:${cpf.slice(-4)}` : `email:${email}`;
+      const r = await localizarPorChave(cpf ? { cpf } : { email });
+      if (r.ok) {
+        Object.assign(novos, { pedido_id: r.pedido.id, pedido_num: r.pedido.num, pedido_nivel: 'parcial', pedido_tentativas: 0 });
+        return { pedido: r.pedido, novos, texto: `Pedido mais recente achado pelo ${cpf ? 'CPF' : 'e-mail'} da compra${r.outros ? ` (há mais ${r.outros} pedido(s) em aberto; se ela falar de outro, peça o número)` : ''}:\n${paraPrompt(r.pedido, 'parcial')}` };
+      }
+      if (attrs.pedido_ultima_tentativa !== chave) Object.assign(novos, { pedido_tentativas: tentativas + 1, pedido_ultima_tentativa: chave });
+      return { novos, texto: `A cliente mandou ${cpf ? 'um CPF' : 'um e-mail'}, mas não achei pedido com ele (tentativa ${tentativas + 1} de ${MAX_TENTATIVAS}). Não diga se existe ou não cadastro. Peça com leveza para ela conferir ${cpf ? 'o CPF usado na compra' : 'o e-mail usado na compra'} ou mandar o número do pedido (está no e-mail de confirmação).` };
+    }
     if (numero) return { novos, texto: `A cliente mandou o número do pedido (${numero}), mas ainda não o CPF. Para localizar, peça o CPF usado na compra, de um jeito natural.` };
-    if (cpf) return { novos, texto: 'A cliente mandou o CPF, mas ainda não o número do pedido. Peça o número do pedido (está no e-mail de confirmação da compra).' };
-    return { novos, texto: 'Nenhum pedido identificado ainda. Se ela quiser saber do pedido, peça o número do pedido e o CPF usado na compra, numa frase só e de um jeito natural.' };
+    return { novos, texto: 'Nenhum pedido identificado ainda. Se ela quiser saber do pedido, peça o CPF ou o e-mail usado na compra (um dos dois basta), numa frase só e de um jeito natural.' };
   } catch (e) {
     log({ erro_pedido: e.message });
     return { novos, texto: 'O sistema de pedidos não respondeu agora. Não invente status: diga que vai conferir com a equipe e escale (assunto rastreio).' };
@@ -428,7 +447,7 @@ export function iniciarIA({ cfg, cw }) {
       const fotosTxt = midia.imagens.length ? `\n\nAs ${midia.imagens.length === 1 ? 'foto que a cliente mandou está anexada' : `${midia.imagens.length} fotos que a cliente mandou estão anexadas, na ordem da conversa`}. Olhe com atenção antes de responder.` : '';
       const conversa = `Nome da cliente: ${cliente}\nCanal: ${nomeCanal[canal]}\n\nConversa (da mais antiga para a mais nova):\n${linhas.join('\n')}${fotosTxt}\n\nResponda à última mensagem da cliente.`;
       const ditos = msgs.filter(m => m.message_type === 0).flatMap(m => [m.content, ...(m.attachments || []).filter(a => a.file_type === 'audio').map(a => midia.textos.get(a.id)?.replace('[áudio transcrito] ', ''))]).filter(Boolean);
-      const ped = await contextoPedido(c.custom_attributes || {}, ditos);
+      const ped = await contextoPedido(c.custom_attributes || {}, ditos, canal === 'whatsapp' ? c.meta?.sender?.phone_number || '' : '');
       const r = await perguntarClaude(montarPrompt({ marca, canal: nomeCanal[canal], conversa, pedido: ped.texto }), conversa, cfg().ia?.modelo || 'opus', SCHEMA, midia.imagens);
 
       // a cliente mandou mais coisa enquanto a IA pensava: recomeça com tudo junto

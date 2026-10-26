@@ -1,5 +1,9 @@
-// Pedidos da Shopify para o atendimento: acha o pedido pelo número + CPF da compra e traduz status e rastreio.
-// Os dois juntos são a "senha" da cliente: sem o CPF certo, nada do pedido é mostrado.
+// Pedidos da Shopify para o atendimento: acha o pedido da cliente e traduz status e rastreio.
+// Jeitos de achar, do mais seguro para o menos:
+//   telefone do WhatsApp igual ao da compra  -> nível "completo" (a cliente é dona do número)
+//   número do pedido + CPF                   -> nível "completo"
+//   só o CPF ou só o e-mail da compra        -> nível "parcial": status, rastreio e prazo, sem itens, valor, cidade e nome
+//     (quem souber o CPF ou o e-mail de outra pessoa não fica sabendo o que ela comprou nem onde mora)
 // Configuração em 00_CORE/Configuration/shopify.json (nunca vai ao navegador):
 //   modo "desligado" -> sem loja: nenhum pedido (padrão até ligar a Shopify; nada de pedido fictício em produção)
 //   modo "teste"  -> pedidos fictícios de 07_LOGS/atendimento/pedidos-teste.json (criados na primeira vez)
@@ -16,7 +20,7 @@ const CFG = path.join(RAIZ, '00_CORE/Configuration/shopify.json');
 const TESTE = path.join(RAIZ, '07_LOGS/atendimento/pedidos-teste.json');
 
 const lerJson = (f, padrao) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return padrao; } };
-export const cfgShopify = () => lerJson(CFG, { modo: 'teste' });
+export const cfgShopify = () => lerJson(CFG, { modo: 'desligado' });
 export const emTeste = () => cfgShopify().modo === 'teste';
 const digitos = s => String(s ?? '').replace(/\D/g, '');
 const reais = n => `R$ ${Number(n || 0).toFixed(2).replace('.', ',')}`;
@@ -32,7 +36,7 @@ export function cpfValido(cpf) {
 
 // textos: só as mensagens da cliente, da mais antiga para a mais nova. Vale o dado mais recente.
 export function extrairIdentificacao(textos) {
-  let cpf = '', numero = '';
+  let cpf = '', numero = '', email = '';
   for (const t of textos) {
     const s = String(t || '');
     for (const m of s.matchAll(/(?<!\d)\d{3}\.?\d{3}\.?\d{3}[-.\s]?\d{2}(?!\d)/g)) if (cpfValido(m[0])) cpf = digitos(m[0]);
@@ -40,8 +44,10 @@ export function extrairIdentificacao(textos) {
       .replace(/R\$\s*[\d.,]+/g, ' ').replace(/\d{5}-\d{3}/g, ' ').replace(/\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g, ' ');
     const n = semCpf.match(/#\s?(\d{3,8})/) || semCpf.match(/pedido\D{0,20}?(\d{3,8})(?!\d)/i) || semCpf.match(/(?<![\d,.])(\d{4,8})(?![\d,.])/);
     if (n) numero = n[1];
+    const e = s.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/);
+    if (e) email = e[0].toLowerCase().replace(/[.,;]+$/, '');
   }
-  return { cpf, numero };
+  return { cpf, numero, email };
 }
 
 // ---------- Shopify ----------
@@ -60,9 +66,9 @@ async function tokenShopify(c) {
   return tokenCache.valor;
 }
 
-const CAMPOS = `id name createdAt processedAt cancelledAt displayFinancialStatus displayFulfillmentStatus note
+const CAMPOS = `id name email phone createdAt processedAt cancelledAt displayFinancialStatus displayFulfillmentStatus note
   totalPriceSet { shopMoney { amount } }
-  customer { firstName }
+  customer { firstName phone }
   shippingAddress { firstName city provinceCode company }
   billingAddress { company }
   customAttributes { key value }
@@ -73,6 +79,20 @@ const CAMPOS = `id name createdAt processedAt cancelledAt displayFinancialStatus
     trackingInfo { number company url }
     events(first: 30, sortKey: HAPPENED_AT, reverse: true) { nodes { id status happenedAt message city province } } }`;
 // O CPF do checkout brasileiro fica em localizedFields (versões novas) ou localizationExtensions (antigas).
+// confere as chaves na Shopify antes de salvar; zera o que estava guardado da conexão anterior
+export async function testarLoja(c) {
+  tokenCache = { valor: '', ate: 0 }; cpfCampo = null; indiceCpf = { ate: 0, pedidos: [] };
+  const j = await graphql(c, '{ shop { name myshopifyDomain } orders(first: 1) { nodes { id } } }');
+  if (j.errors?.length) throw new Error(j.errors[0].message);
+  return j.data.shop;
+}
+export function salvarShopify(mudancas) {
+  const c = { ...lerJson(CFG, {}), ...mudancas };
+  fs.writeFileSync(CFG, JSON.stringify(c, null, 2));
+  tokenCache = { valor: '', ate: 0 }; cpfCampo = null; indiceCpf = { ate: 0, pedidos: [] };
+  return c;
+}
+
 const CPF_CAMPOS = ['localizedFields(first: 5) { nodes { key value } }', 'localizationExtensions(first: 5) { nodes { key value } }', ''];
 
 async function graphql(c, query, variables) {
@@ -124,7 +144,7 @@ function diasAtras(n) { return new Date(Date.now() - n * 864e5).toISOString(); }
 function criarTeste() {
   const item = (title, quantity = 1) => ({ title, quantity });
   const base = (num, nome, cidade, uf, dias, total, frete, itens, cpf9) => ({
-    id: `gid://shopify/Order/teste-${num}`, name: `#${num}`, createdAt: diasAtras(dias), processedAt: diasAtras(dias), cancelledAt: null,
+    id: `gid://shopify/Order/teste-${num}`, name: `#${num}`, email: `${nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')}@exemplo.com.br`, phone: `+55819990${num}`, createdAt: diasAtras(dias), processedAt: diasAtras(dias), cancelledAt: null,
     displayFinancialStatus: 'PAID', displayFulfillmentStatus: 'UNFULFILLED', note: '', totalPriceSet: { shopMoney: { amount: total } },
     customer: { firstName: nome }, shippingAddress: { firstName: nome, city: cidade, provinceCode: uf, company: '' }, billingAddress: { company: '' },
     customAttributes: [], localizedFields: { nodes: [{ key: 'TAX_CREDENTIAL_BR', value: cpfDe(cpf9) }] },
@@ -242,6 +262,59 @@ export async function localizarPedido({ numero, cpf }) {
   return { ok: true, pedido: resumir(o) };
 }
 
+// Telefone, e-mail ou CPF sozinhos: o pedido mais recente que não foi cancelado.
+// -> { ok: true, pedido, nivel, outros } | { ok: false, motivo: 'loja-desligada' | 'nao-encontrado' }
+const soDigitosTel = t => { const d = digitos(t); return d.length >= 12 && d.startsWith('55') ? d.slice(2) : d; };
+let indiceCpf = { ate: 0, pedidos: [] }; // pedidos dos últimos 90 dias, para achar pelo CPF (a Shopify não busca por CPF)
+async function pedidosRecentes(c) {
+  if (Date.now() < indiceCpf.ate) return indiceCpf.pedidos;
+  const desde = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+  const todos = [];
+  let depois = null;
+  for (let pagina = 0; pagina < 20; pagina++) {
+    if (cpfCampo === null) await pedidosDaLoja(c, 'name:#0'); // descobre o campo do CPF desta versão da API
+    const campo = cpfCampo ?? CPF_CAMPOS[0];
+    const j = await graphql(c, `query($q: String!, $a: String) { orders(first: 250, after: $a, query: $q, sortKey: CREATED_AT, reverse: true) { pageInfo { hasNextPage endCursor } nodes { id name cancelledAt createdAt note customAttributes { key value } billingAddress { company } shippingAddress { company } ${campo} } } }`, { q: `created_at:>=${desde}`, a: depois });
+    if (j.errors?.length) throw new Error(`Shopify: ${j.errors[0].message}`);
+    todos.push(...j.data.orders.nodes);
+    if (!j.data.orders.pageInfo.hasNextPage) break;
+    depois = j.data.orders.pageInfo.endCursor;
+  }
+  indiceCpf = { ate: Date.now() + 10 * 60e3, pedidos: todos };
+  return todos;
+}
+async function pedidosPorTelefone(c, tel) {
+  const local = soDigitosTel(tel);
+  if (local.length < 10) return [];
+  const j = await graphql(c, `query($q: String!) { customers(first: 5, query: $q) { nodes { id } } }`, { q: `phone:+55${local}` });
+  const ids = (j.data?.customers?.nodes || []).map(x => x.id.split('/').pop());
+  const todos = [];
+  for (const id of ids) todos.push(...await pedidosDaLoja(c, `customer_id:${id}`));
+  return todos;
+}
+export async function localizarPorChave({ cpf, email, telefone }) {
+  const c = cfgShopify();
+  if (c.modo !== 'loja' && c.modo !== 'teste') return { ok: false, motivo: 'loja-desligada' };
+  const doc = digitos(cpf), mail = String(email || '').trim().toLowerCase(), tel = soDigitosTel(telefone);
+  let nodes = [], nivel = 'parcial';
+  if (c.modo === 'teste') {
+    const todos = pedidosTeste();
+    if (tel) nodes = todos.filter(o => soDigitosTel(o.phone) === tel);
+    else if (mail) nodes = todos.filter(o => String(o.email || '').toLowerCase() === mail);
+    else if (doc) nodes = todos.filter(o => cpfsDoPedido(o).has(doc));
+  } else if (tel) nodes = await pedidosPorTelefone(c, tel);
+  else if (mail) nodes = await pedidosDaLoja(c, `email:${mail}`);
+  else if (doc) {
+    const ids = (await pedidosRecentes(c)).filter(o => cpfsDoPedido(o).has(doc)).map(o => o.id);
+    for (const id of ids.slice(0, 3)) { const o = await pedidoDaLojaPorId(c, id); if (o) nodes.push(o); }
+  }
+  if (tel) nivel = 'completo';
+  const vivos = nodes.filter(o => !o.cancelledAt).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const o = vivos[0] || nodes[0];
+  if (!o) return { ok: false, motivo: 'nao-encontrado' };
+  return { ok: true, pedido: resumir(o), nivel, outros: Math.max(0, vivos.length - 1) };
+}
+
 export async function atualizarPedido(id) {
   const c = cfgShopify();
   if (c.modo !== 'loja' && c.modo !== 'teste') return null;
@@ -252,8 +325,17 @@ export async function atualizarPedido(id) {
 // o que o card "Último pedido" da conversa mostra (contato.custom_attributes.ultimo_pedido)
 export const paraCard = p => ({ num: p.num, status: p.status, rot: p.rot, passo: p.passo, itens: p.itens, total: p.total, envio: p.envio || p.transportadora, rastreio: p.rastreio, data: p.data });
 
-// texto para o prompt da IA: só fatos, sem endereço
-export function paraPrompt(p) {
+// texto para o prompt da IA: só fatos, sem endereço. No nível "parcial", nem itens, valor, nome ou cidade.
+export function paraPrompt(p, nivel = 'completo') {
+  if (nivel === 'parcial') {
+    return [
+      `Pedido ${p.num}, comprado em ${p.data}. Situação agora: ${p.rot}.${p.atrasado ? ' ATENÇÃO: passou do prazo da política.' : ''}`,
+      `Envio: ${p.envio || '-'}.${p.transportadora ? ` Transportadora: ${p.transportadora}.` : ''} Código de rastreio: ${p.rastreio}.${p.url_rastreio ? ` Link de rastreio: ${p.url_rastreio}` : ''}`,
+      p.postado_em ? `Postado em ${ddmm(p.postado_em)} (${diasUteisEntre(p.postado_em)} dias úteis atrás).` : `Ainda não foi postado; pago há ${diasUteisEntre(p.comprado_em)} dias úteis (o prazo de postagem é de até 5 dias úteis).`,
+      p.previsao ? `Previsão de entrega da transportadora: ${ddmm(p.previsao)}.` : '',
+      'Achado só pelo CPF ou pelo e-mail: NÃO diga os produtos, o valor, o nome nem a cidade. Se ela pedir esses detalhes, peça o número do pedido para conferir.',
+    ].filter(Boolean).join('\n');
+  }
   const linhas = [
     `Pedido ${p.num} de ${p.primeiro_nome || 'a cliente'}, comprado em ${p.data}. Itens: ${p.itens}. Total: ${p.total}.`,
     `Situação agora: ${p.rot}.${p.atrasado ? ' ATENÇÃO: passou do prazo da política.' : ''}`,
@@ -271,7 +353,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const [cmd, a, b] = process.argv.slice(2);
   const sai = x => console.log(JSON.stringify(x, null, 2));
   if (cmd === 'buscar') localizarPedido({ numero: a, cpf: b }).then(sai, e => console.error(e.message));
+  else if (cmd === 'chave') localizarPorChave(/@/.test(a) ? { email: a } : digitos(a).length === 11 && cpfValido(a) ? { cpf: a } : { telefone: a }).then(sai, e => console.error(e.message));
   else if (cmd === 'avancar') sai(avancarTeste(a));
   else if (cmd === 'teste') sai(pedidosTeste().map(o => ({ pedido: o.name, cpf: o.localizedFields.nodes[0].value, ...((r) => ({ status: r.rot }))(resumir(o)) })));
-  else console.log('uso: node pedidos.mjs buscar NUMERO CPF | avancar NUMERO | teste');
+  else console.log('uso: node pedidos.mjs buscar NUMERO CPF | chave CPF|EMAIL|TELEFONE | avancar NUMERO | teste');
 }

@@ -78,12 +78,8 @@ const INTEGRACOES = [
     ],
   },
   {
-    id: 'shopify', grupo: 'ferramentas', nome: 'Shopify', desc: 'Mostra os pedidos da cliente ao lado da conversa.',
-    breve: true,
-    passos: [
-      'Vamos ligar a loja (331 produtos) para cada conversa mostrar o último pedido, o status e o rastreio de verdade.',
-      'Hoje o pedido que aparece ao lado da conversa é de teste.',
-    ],
+    // Shopify: não vira caixa do Chatwoot. As chaves ficam no servidor (06_BACKEND/atendimento/rotas/shopify.mjs).
+    id: 'shopify', grupo: 'ferramentas', nome: 'Shopify', desc: 'A IA acha o pedido da cliente pelo CPF, pelo e-mail ou pelo WhatsApp da compra e responde status e rastreio.',
   },
   {
     id: 'ia', grupo: 'ferramentas', nome: 'IA do SAC', desc: 'Responde primeiro, separa por assunto e chama alguém da equipe quando precisa.',
@@ -112,6 +108,10 @@ function situacao(i) {
     if (!COMENT) return { cls: '', rot: 'Conferindo…' };
     return COMENT.conectado ? { cls: 'ligado', rot: 'Conectado' } : { cls: '', rot: 'Não conectado' };
   }
+  if (i.id === 'shopify') {
+    if (!LOJA) return { cls: '', rot: 'Conferindo…' };
+    return LOJA.conectado ? { cls: 'ligado', rot: 'Conectada' } : LOJA.teste ? { cls: 'espera', rot: 'Só de teste' } : { cls: '', rot: 'Não conectada' };
+  }
   if (i.id === 'ia') return IA_LIGADA ? { cls: 'ligado', rot: 'Ligada' } : { cls: '', rot: 'Desligada' };
   if (i.breve) return { cls: 'espera', rot: 'Em preparação' };
   const cx = caixasDe(i.id);
@@ -122,17 +122,20 @@ function situacao(i) {
 
 function renderIntegracoes() {
   if (Date.now() - COMENT_T > 20000) carregarComent();
+  if (Date.now() - LOJA_T > 20000) carregarLoja();
   prepararCaixasNovas();
   const card = i => {
     const s = situacao(i), cx = caixasDe(i.id);
     const contas = i.id === 'comentarios' ? contasComent()
+      : i.id === 'shopify' ? (LOJA?.conectado ? `<div class="contas"><span>${esc(LOJA.nome || LOJA.loja)}</span></div>` : '')
       : !i.breve && i.id !== 'ia' && cx.length ? `<div class="contas">${cx.map(c => `<span>${esc(c.nome)}${c.tipo === 'Channel::Api' ? ' (teste)' : ''}</span>`).join('')}</div>` : '';
     const botao = i.id === 'comentarios' ? (COMENT?.conectado ? 'Ver ou desconectar' : 'Conectar')
+      : i.id === 'shopify' ? (LOJA?.conectado ? 'Ver ou desconectar' : 'Conectar')
       : i.id === 'ia' ? (IA_LIGADA ? 'Ver ou desligar' : 'Ligar a IA') : i.breve || i.precisaVps ? 'Ver o que falta' : s.cls === 'ligado' ? 'Conectar outra' : i.oauth === 'instagram' ? 'Entrar com o Instagram' : 'Conectar';
     return `<div class="card">
       <div class="card-top"><span class="card-ico">${integIco(i)}</span><div><h3>${i.nome}</h3><span class="estado ${s.cls}">${s.rot}</span></div></div>
       <p class="desc">${i.desc}</p>${contas}
-      <div class="card-pe">${i.precisaVps ? '<span class="muted" style="font-size:12px">Precisa da VPS</span>' : ''}<button class="btn${i.breve || i.precisaVps || (i.id === 'comentarios' && COMENT?.conectado) ? '' : ' prim'} peq" data-integ="${i.id}">${botao}</button></div>
+      <div class="card-pe">${i.precisaVps ? '<span class="muted" style="font-size:12px">Precisa da VPS</span>' : ''}<button class="btn${i.breve || i.precisaVps || (i.id === 'comentarios' && COMENT?.conectado) || (i.id === 'shopify' && LOJA?.conectado) ? '' : ' prim'} peq" data-integ="${i.id}">${botao}</button></div>
     </div>`;
   };
   $('#pag-integracoes').innerHTML = `<div class="pag-in">
@@ -216,6 +219,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (el.dataset.integ === 'comentarios') abrirGavetaComent();
+  else if (el.dataset.integ === 'shopify') abrirGavetaLoja();
   else if (el.dataset.integ) abrirGaveta(el.dataset.integ);
   else if (el.dataset.fechar && (e.target === el || el.tagName === 'BUTTON')) fecharGaveta();
   else if (el.dataset.conectar) conectar(el.dataset.conectar, el);
@@ -360,6 +364,101 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id?.startsWith('mc-')) { e.preventDefault(); const b = document.querySelector('[data-mc="conectar"]'); if (b && !b.disabled) conectarComent(b); }
+});
+
+// ---------- Shopify ----------
+// A dona cola o endereço da loja e as chaves; o servidor confere na Shopify antes de salvar e nunca devolve as chaves.
+let LOJA = null, LOJA_T = 0;
+const LOJA_API = '/api/atendimento/shopify';
+async function carregarLoja() {
+  LOJA_T = Date.now();
+  try { LOJA = await chamar(`${LOJA_API}/conexao`); }
+  catch (e) { LOJA = { conectado: false, erro: e.message }; }
+  const pg = $('#pag-integracoes');
+  if (pg && !pg.hidden) renderIntegracoes();
+}
+const LOJA_PASSOS = [
+  'No admin da Shopify, vá em <b>Configurações</b>, <b>Apps e canais de vendas</b>, <b>Desenvolver apps</b> e crie um app chamado <b>Atendimento</b>.',
+  'Em <b>Configuração da API Admin</b>, marque <b>read_orders</b>, <b>read_customers</b> e <b>read_fulfillments</b>. Em <b>Acesso a dados protegidos de clientes</b>, libere nome, e-mail, telefone e endereço.',
+  'Clique em <b>Instalar app</b> e revele o <b>token de acesso da API Admin</b> (começa com <b>shpat_</b>). Ele só aparece uma vez: copie na hora.',
+  'Se o app foi criado no <b>Dev Dashboard</b>, em vez do token use o <b>Client ID</b> e o <b>Client secret</b>.',
+  'Cole abaixo e clique em <b>Conectar</b>. O sistema confere na Shopify antes de salvar.',
+];
+const LOJA_CAMPOS = [
+  { id: 'loja', rot: 'Endereço da loja', ph: 'rosaselvagem.myshopify.com' },
+  { id: 'access_token', rot: 'Token de acesso', ph: 'shpat_…', tipo: 'password', opcional: 'ou Client ID + secret' },
+  { id: 'client_id', rot: 'Client ID', ph: 'só se não tiver o token', opcional: 'opcional' },
+  { id: 'client_secret', rot: 'Client secret', ph: 'só se não tiver o token', tipo: 'password', opcional: 'opcional' },
+];
+function abrirGavetaLoja(modo) {
+  if (!LOJA) { carregarLoja().then(() => abrirGavetaLoja(modo)); return; }
+  const pode = LOJA.pode_editar !== false && typeof MEU_NIVEL !== 'undefined' && MEU_NIVEL === 'dona';
+  const titulo = t => `<span class="card-ico">${ico(INTEG_ICO.shopify)}</span><h2 id="g-titulo">${t}</h2>`;
+  const montar = (t, corpo, pe) => {
+    $('#gaveta').innerHTML = `<div class="fundo" data-fechar="1">
+      <div class="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-titulo">
+        <div class="gaveta-head">${titulo(t)}<button class="btn icone fantasma" data-fechar="1" aria-label="Fechar">${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button></div>
+        <div class="gaveta-corpo">${corpo}</div><div class="gaveta-pe">${pe}</div>
+      </div></div>`;
+  };
+  const comoAcha = `<div class="nota-box"><b>Como a IA acha o pedido:</b> se a cliente chama pelo WhatsApp com o mesmo número da compra, acha sozinha.
+    Se não, pede o CPF ou o e-mail da compra (um dos dois basta) e responde status, rastreio e prazo.
+    Só com o CPF ou o e-mail ela não diz os produtos, o valor nem a cidade: para isso, pede o número do pedido junto.</div>`;
+  if (LOJA.conectado && modo !== 'trocar') {
+    const quando = LOJA.conectado_em ? new Date(LOJA.conectado_em).toLocaleDateString('pt-BR') : '';
+    montar('Shopify', `<div class="sucesso">Conectada a ${esc(LOJA.nome || LOJA.loja)} (${esc(LOJA.loja)}).${quando ? ` Desde ${esc(quando)}${LOJA.conectado_por ? `, por ${esc(LOJA.conectado_por)}` : ''}.` : ''}</div>
+      ${comoAcha}${pode ? '' : '<div class="nota-box">Só a dona pode trocar ou desconectar.</div>'}<div id="g-erro"></div>`,
+      `<button class="btn fantasma" data-fechar="1">Fechar</button>${pode ? '<button class="btn" data-loja="trocar">Trocar as chaves</button><button class="btn" data-loja="desconectar">Desconectar</button>' : ''}`);
+    return;
+  }
+  const campos = LOJA_CAMPOS.map(c => `<div class="campo"><label for="lj-${c.id}">${c.rot}${c.opcional ? ` <span class="muted" style="font-weight:400">(${c.opcional})</span>` : ''}</label>
+    <input id="lj-${c.id}" type="${c.tipo || 'text'}" placeholder="${esc(c.ph)}" autocomplete="${c.tipo === 'password' ? 'new-password' : 'off'}" spellcheck="false"></div>`).join('');
+  montar(modo === 'trocar' ? 'Trocar as chaves da Shopify' : 'Conectar a Shopify', `
+    ${comoAcha}
+    <ol class="passos">${LOJA_PASSOS.map(p => `<li><span>${p}</span></li>`).join('')}</ol>
+    ${pode ? campos : '<div class="nota-box">Só a dona pode conectar. Peça para ela abrir esta tela.</div>'}
+    <div id="g-erro"></div>`,
+    `<button class="btn fantasma" data-fechar="1">Cancelar</button>${pode ? '<button class="btn prim" data-loja="conectar">Conectar</button>' : ''}`);
+  $('#lj-loja')?.focus();
+}
+async function conectarLoja(botao) {
+  const v = {};
+  for (const c of LOJA_CAMPOS) v[c.id] = ($(`#lj-${c.id}`)?.value || '').trim();
+  if (!v.loja) { $('#g-erro').innerHTML = '<div class="erro">Preencha o endereço da loja.</div>'; $('#lj-loja').focus(); return; }
+  if (!v.access_token && !(v.client_id && v.client_secret)) { $('#g-erro').innerHTML = '<div class="erro">Cole o token de acesso, ou o Client ID e o Client secret.</div>'; $('#lj-access_token').focus(); return; }
+  botao.disabled = true; botao.textContent = 'Conferindo na Shopify…';
+  $('#g-erro').innerHTML = '';
+  try {
+    LOJA = { ...(await chamar(`${LOJA_API}/conectar`, 'POST', v)), pode_editar: true }; LOJA_T = Date.now();
+    renderIntegracoes();
+    abrirGavetaLoja();
+    toast('Loja conectada. A IA já consegue achar os pedidos.');
+  } catch (err) {
+    botao.disabled = false; botao.textContent = 'Conectar';
+    $('#g-erro').innerHTML = `<div class="erro">Não conectou: ${esc(err.message)}</div>`;
+  }
+}
+async function desconectarLoja(botao) {
+  if (botao.dataset.confirmar !== '1') {
+    botao.dataset.confirmar = '1'; botao.textContent = 'Sim, desconectar';
+    $('#g-erro').innerHTML = '<div class="nota-box">A IA deixa de ver os pedidos e passa a escalar quem perguntar do pedido. As chaves são apagadas do sistema. Clique de novo para confirmar.</div>';
+    return;
+  }
+  botao.disabled = true; botao.textContent = 'Desconectando…';
+  try {
+    LOJA = { ...(await chamar(`${LOJA_API}/desconectar`, 'POST', {})), pode_editar: true }; LOJA_T = Date.now();
+    fecharGaveta(); renderIntegracoes(); toast('Loja desconectada.');
+  } catch (err) {
+    botao.disabled = false; botao.textContent = 'Desconectar'; delete botao.dataset.confirmar;
+    $('#g-erro').innerHTML = `<div class="erro">Não desconectou: ${esc(err.message)}</div>`;
+  }
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-loja]');
+  if (!el) return;
+  if (el.dataset.loja === 'conectar') conectarLoja(el);
+  else if (el.dataset.loja === 'desconectar') desconectarLoja(el);
+  else if (el.dataset.loja === 'trocar') abrirGavetaLoja('trocar');
 });
 
 // caixas que vieram do login da Meta (Instagram, Messenger) ganham equipe e IA quando a aba abre
