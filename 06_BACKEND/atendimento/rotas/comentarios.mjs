@@ -285,15 +285,15 @@ async function postsReais(tipo) {
     if (c.ig_user_id) await tentar('Instagram', async () => {
       const r = await graph(`${c.ig_user_id}/media`, { params: { fields: CAMPOS_IG_MEDIA, limit: 30 } });
       const lista = (r.data || []).filter(m => tipo === 'reels' ? m.media_product_type === 'REELS' : m.media_product_type !== 'REELS' && m.media_product_type !== 'STORY').slice(0, 12);
-      for (const m of lista) posts.push({ ...igPost(m, tipo), comentarios: m.comments_count ? await comentariosIG(m.id, c, respondidos) : [] });
+      posts.push(...await Promise.all(lista.map(async m => ({ ...igPost(m, tipo), comentarios: m.comments_count ? await comentariosIG(m.id, c, respondidos) : [] }))));
     });
     if (c.page_id && tipo === 'feed') await tentar('Facebook', async () => {
       const r = await graph(`${c.page_id}/posts`, { params: { fields: 'id,message,created_time,full_picture,permalink_url', limit: 12 } });
-      for (const p of r.data || []) posts.push({ ...fbPost(p, tipo), comentarios: await comentariosFB(p.id, c, respondidos) });
+      posts.push(...await Promise.all((r.data || []).map(async p => ({ ...fbPost(p, tipo), comentarios: await comentariosFB(p.id, c, respondidos) }))));
     });
     if (c.page_id && tipo === 'reels') await tentar('Facebook', async () => {
       const r = await graph(`${c.page_id}/video_reels`, { params: { fields: 'id,description,created_time,picture,permalink_url', limit: 8 } });
-      for (const v of r.data || []) posts.push({ id: v.id, rede: 'facebook', tipo, thumb: v.picture || '', legenda: v.description || '', data: ms(v.created_time), link: v.permalink_url ? `https://www.facebook.com${v.permalink_url}` : '', formato: 'Reels', comentarios: await comentariosFB(v.id, c, respondidos) });
+      posts.push(...await Promise.all((r.data || []).map(async v => ({ id: v.id, rede: 'facebook', tipo, thumb: v.picture || '', legenda: v.description || '', data: ms(v.created_time), link: v.permalink_url ? `https://www.facebook.com${v.permalink_url}` : '', formato: 'Reels', comentarios: await comentariosFB(v.id, c, respondidos) }))));
     });
   }
 
@@ -304,21 +304,25 @@ async function postsReais(tipo) {
     if (c.ad_account_id) await tentar('Anúncios', async () => {
       const conta = String(c.ad_account_id).startsWith('act_') ? c.ad_account_id : `act_${c.ad_account_id}`;
       const r = await graph(`${conta}/ads`, { token: c.ads_token || c.page_token, params: { fields: 'id,name,effective_status,creative{effective_object_story_id,effective_instagram_media_id,thumbnail_url,body,title}', effective_status: ['ACTIVE'], limit: 25 } });
+      // primeiro escolhe os posts (sem repetir), depois busca os comentários de todos ao mesmo tempo
+      const alvos = [];
       for (const ad of r.data || []) {
         const cr = ad.creative || {};
         if (cr.effective_instagram_media_id && !vistos.has(cr.effective_instagram_media_id)) {
           vistos.add(cr.effective_instagram_media_id);
-          posts.push({ id: cr.effective_instagram_media_id, rede: 'instagram', tipo, anuncio: ad.name, thumb: cr.thumbnail_url || '', legenda: cr.body || cr.title || '', data: Date.now(), link: '', formato: 'Anúncio', comentarios: await comentariosIG(cr.effective_instagram_media_id, c, respondidos) });
+          alvos.push(async () => ({ id: cr.effective_instagram_media_id, rede: 'instagram', tipo, anuncio: ad.name, thumb: cr.thumbnail_url || '', legenda: cr.body || cr.title || '', data: Date.now(), link: '', formato: 'Anúncio', comentarios: await comentariosIG(cr.effective_instagram_media_id, c, respondidos) }));
         }
         if (cr.effective_object_story_id && !vistos.has(cr.effective_object_story_id)) {
           vistos.add(cr.effective_object_story_id);
-          posts.push({ id: cr.effective_object_story_id, rede: 'facebook', tipo, anuncio: ad.name, thumb: cr.thumbnail_url || '', legenda: cr.body || cr.title || '', data: Date.now(), link: `https://www.facebook.com/${cr.effective_object_story_id}`, formato: 'Anúncio', comentarios: await comentariosFB(cr.effective_object_story_id, c, respondidos) });
+          alvos.push(async () => ({ id: cr.effective_object_story_id, rede: 'facebook', tipo, anuncio: ad.name, thumb: cr.thumbnail_url || '', legenda: cr.body || cr.title || '', data: Date.now(), link: `https://www.facebook.com/${cr.effective_object_story_id}`, formato: 'Anúncio', comentarios: await comentariosFB(cr.effective_object_story_id, c, respondidos) }));
         }
       }
+      const prontos = await Promise.allSettled(alvos.map(f => f()));
+      for (const p of prontos) if (p.status === 'fulfilled') posts.push(p.value); else erros.push(`Anúncio: ${p.reason?.message || p.reason}`);
     });
     if (!c.ad_account_id && c.page_id) await tentar('Anúncios', async () => {
       const r = await graph(`${c.page_id}/ads_posts`, { params: { fields: 'id,message,created_time,full_picture,permalink_url', include_inline_create: true, limit: 15 } });
-      for (const p of r.data || []) posts.push({ ...fbPost(p, tipo), formato: 'Anúncio', comentarios: await comentariosFB(p.id, c, respondidos) });
+      posts.push(...await Promise.all((r.data || []).map(async p => ({ ...fbPost(p, tipo), formato: 'Anúncio', comentarios: await comentariosFB(p.id, c, respondidos) }))));
     });
   }
 
@@ -342,15 +346,46 @@ async function postsReais(tipo) {
   return { posts, erros };
 }
 
+// Cache que responde na hora: devolve o que já tem e, se tiver mais de 2 min, atualiza por trás.
+// Uma busca por tipo de cada vez. Ao ligar o serviço, começa do que ficou gravado no disco (cache-<tipo>.json).
 const cache = new Map(); // tipo -> { t, dados }
-async function postsCache(tipo, forcar) {
-  const x = cache.get(tipo);
-  if (!forcar && x && Date.now() - x.t < 120000) return x.dados;
-  const dados = await postsReais(tipo);
-  cache.set(tipo, { t: Date.now(), dados });
-  try { gravarJ(path.join(PASTA, `cache-${tipo}.json`), { atualizado: new Date().toISOString(), ...dados }); } catch { /* cache é opcional */ }
-  return dados;
+const buscando = new Map(); // tipo -> promessa da busca em andamento
+let aquecido = false;
+function aquecer() {
+  if (aquecido) return;
+  aquecido = true;
+  if (!conectado(cfg())) return;
+  for (const t of TIPOS) {
+    const d = lerJ(path.join(PASTA, `cache-${t}.json`), null);
+    if (d?.posts) cache.set(t, { t: Date.parse(d.atualizado) || 0, dados: { posts: d.posts, erros: d.erros || [] } });
+  }
 }
+function buscarTipo(tipo) {
+  if (!buscando.has(tipo)) {
+    buscando.set(tipo, postsReais(tipo).then(dados => {
+      cache.set(tipo, { t: Date.now(), dados });
+      try { gravarJ(path.join(PASTA, `cache-${tipo}.json`), { atualizado: new Date().toISOString(), ...dados }); } catch { /* cache é opcional */ }
+      return dados;
+    }).finally(() => buscando.delete(tipo)));
+  }
+  return buscando.get(tipo);
+}
+async function postsCache(tipo, forcar) {
+  aquecer();
+  const x = cache.get(tipo);
+  if (forcar || !x) return buscarTipo(tipo);
+  if (Date.now() - x.t > 120000) buscarTipo(tipo).catch(() => {});
+  return x.dados;
+}
+// só o que já está guardado (para os números do menu); se não tiver, começa a buscar e não espera
+function postsJa(tipo) {
+  aquecer();
+  const x = cache.get(tipo);
+  if (!x || Date.now() - x.t > 120000) buscarTipo(tipo).catch(() => {});
+  return x?.dados || null;
+}
+// depois de responder/ocultar: mantém o que tem na tela e busca de novo por trás
+function invalidar() { for (const x of cache.values()) x.t = 0; }
 
 async function responderReal({ id, rede, mencao, post_id, texto }) {
   const c = cfg();
@@ -424,7 +459,7 @@ async function moderar() {
       }
     }
     gravarJ(VISTOS_ARQ, [...vistos].slice(-5000));
-    cache.clear();
+    invalidar();
   } catch (e) {
     anotar({ acao: 'erro', motivo: `Moderação: ${e.message}` });
   } finally { rodando = false; }
@@ -547,6 +582,7 @@ async function conectarMeta(b, quem) {
   });
   gravarJ(CONF, bruto);
   cache.clear();
+  for (const t of TIPOS) fs.rmSync(path.join(PASTA, `cache-${t}.json`), { force: true });
   return { ...resumoConexao(), avisos };
 }
 
@@ -588,7 +624,7 @@ export default async function ({ p, m, req, res, url, s, lerCorpo, responder, so
       const contadores = {}, erros = [];
       for (const t of TIPOS) {
         if (!ligado) { contadores[t] = 0; continue; }
-        try { const d = await postsCache(t); contadores[t] = semResposta(d.posts); erros.push(...d.erros); }
+        try { const d = postsJa(t); contadores[t] = d ? semResposta(d.posts) : 0; if (d) erros.push(...d.erros); }
         catch (e) { contadores[t] = 0; erros.push(e.message); }
       }
       responder(res, 200, {
@@ -651,7 +687,7 @@ export default async function ({ p, m, req, res, url, s, lerCorpo, responder, so
       if (texto.length > 2000) { responder(res, 400, { erro: 'A resposta está longa demais. Deixe com até 2.000 letras.' }); return true; }
       const r = await responderReal({ ...b, texto });
       const resp = lerJ(RESPONDIDOS_ARQ, {}); resp[b.id] = Date.now(); gravarJ(RESPONDIDOS_ARQ, resp);
-      cache.clear();
+      invalidar();
       responder(res, 200, { ok: true, id: r.id });
       return true;
     }
@@ -664,7 +700,7 @@ export default async function ({ p, m, req, res, url, s, lerCorpo, responder, so
         liberar(b.id);
         for (const l of lerLog()) if (l.acao === 'ocultou' && l.comentario_id === b.id && !l.desfeito) marcarDesfeito(l.id, quem);
       }
-      cache.clear();
+      invalidar();
       responder(res, 200, { ok: true });
       return true;
     }
@@ -673,7 +709,7 @@ export default async function ({ p, m, req, res, url, s, lerCorpo, responder, so
       const b = await lerCorpo(req);
       if (!ID_OK.test(b.id || '') || b.rede !== 'facebook' || String(b.id).startsWith('mencao:')) { responder(res, 400, { erro: 'Só dá para curtir comentários do Facebook.' }); return true; }
       await graph(`${b.id}/likes`, { method: b.curtir ? 'POST' : 'DELETE' });
-      cache.clear();
+      invalidar();
       responder(res, 200, { ok: true });
       return true;
     }
@@ -684,7 +720,7 @@ export default async function ({ p, m, req, res, url, s, lerCorpo, responder, so
       if (!l || l.desfeito || !['ocultou', 'respondeu'].includes(l.acao)) { responder(res, 400, { erro: 'Não há nada para desfazer aqui.' }); return true; }
       if (l.acao === 'ocultou') { await ocultarReal({ id: l.comentario_id, rede: l.rede }, false); liberar(l.comentario_id); }
       else if (l.resposta_id) await graph(l.resposta_id, { method: 'DELETE' });
-      cache.clear();
+      invalidar();
       marcarDesfeito(l.id, quem);
       responder(res, 200, { ok: true });
       return true;
