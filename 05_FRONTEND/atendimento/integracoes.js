@@ -8,18 +8,16 @@ const INTEGRACOES = [
   {
     id: 'whatsapp', grupo: 'canais', nome: 'WhatsApp', desc: 'Mensagens do WhatsApp oficial da marca, pela API da Meta.',
     passos: [
-      'Em <b>developers.facebook.com</b>, abra o app da Rosa Selvagem e entre em <b>WhatsApp, Configuração da API</b>.',
-      'Copie o <b>ID do número de telefone</b> e o <b>ID da conta do WhatsApp Business</b>.',
-      'Em <b>business.facebook.com</b>, vá em Configurações, Usuários do sistema, crie um usuário de sistema administrador, dê a ele o app e a conta do WhatsApp, e gere um <b>token permanente</b> com as permissões <b>whatsapp_business_messaging</b> e <b>whatsapp_business_management</b>.',
-      'Cole abaixo e clique em Conectar. O sistema confere tudo na Meta e já liga o recebimento das mensagens sozinho.',
+      'Cole o <b>token</b> da API oficial do WhatsApp (começa com <b>EAA</b>) e o <b>número</b> do WhatsApp da marca.',
+      'Clique em Conectar. O sistema acha sozinho a conta do WhatsApp Business e o ID do número na Meta, confere tudo e já liga o recebimento das mensagens.',
+      'Use um token <b>permanente</b> (de usuário do sistema, no business.facebook.com) com <b>whatsapp_business_messaging</b> e <b>whatsapp_business_management</b>. O token temporário vence em 24 horas.',
     ],
     campos: [
-      { id: 'phone_id', rot: 'ID do número de telefone', ph: '123456789012345' },
-      { id: 'waba_id', rot: 'ID da conta do WhatsApp Business', ph: '102938475610293' },
-      { id: 'token', rot: 'Token permanente', ph: 'EAAG…', tipo: 'password' },
+      { id: 'token', rot: 'Token da API do WhatsApp', ph: 'EAAG…', tipo: 'password' },
+      { id: 'numero', rot: 'Número do WhatsApp', ph: '+55 81 99999-9999', opcional: 'pode deixar vazio se o token tiver um número só' },
     ],
-    rota: '/canais/whatsapp', corpo: v => ({ phone_number_id: v.phone_id, waba_id: v.waba_id, token: v.token }),
-    aviso: 'O número não pode estar ligado a outro sistema ao mesmo tempo. Hoje ele está na Seeyu: só conecte aqui quando for a hora de trocar.',
+    rota: '/canais/whatsapp', corpo: v => ({ token: v.token, numero: v.numero }),
+    aviso: 'As conversas antigas não vêm: a Meta não entrega o histórico pela API. A partir da conexão, toda mensagem nova cai aqui. Se o número continuar ligado na Seeyu, as mensagens podem chegar nos dois sistemas.',
   },
   {
     id: 'instagram', grupo: 'canais', nome: 'Instagram', desc: 'Directs e respostas aos stories do perfil da marca.',
@@ -29,7 +27,7 @@ const INTEGRACOES = [
       'Clique em <b>Entrar com o Instagram</b>, faça login com a conta da marca e aceite as permissões.',
       'Pronto: os Directs começam a cair aqui. Volte para esta aba depois do login.',
     ],
-    aviso: 'Funciona com o sistema na VPS e o app da Meta configurado no servidor. Como a conta é da própria marca, não precisa esperar a aprovação da Meta.',
+    aviso: 'Antes, ligue o <b>App da Meta</b> (em Ferramentas, mais abaixo). Como a conta é da própria marca, não precisa esperar a aprovação da Meta.',
   },
   {
     id: 'messenger', grupo: 'canais', nome: 'Messenger', desc: 'Mensagens da página da marca no Facebook.',
@@ -39,7 +37,7 @@ const INTEGRACOES = [
       'Lá, escolha <b>Messenger</b>, clique em <b>Continuar com o Facebook</b>, entre com quem administra a página e escolha a página da marca.',
       'Volte para esta aba: a caixa nova aparece aqui já com a equipe e a IA.',
     ],
-    aviso: 'Funciona com o sistema na VPS e o app da Meta configurado no servidor.',
+    aviso: 'Antes, ligue o <b>App da Meta</b> (em Ferramentas, mais abaixo).',
   },
   {
     // Comentários: não vira caixa do Chatwoot. O servidor lê direto da Meta (06_BACKEND/atendimento/rotas/comentarios.mjs).
@@ -78,6 +76,10 @@ const INTEGRACOES = [
     ],
   },
   {
+    // App da Meta: o ID e a chave do app ficam no Chatwoot e liberam o Instagram e o Messenger (rotas/canais.mjs, /canais/app-meta)
+    id: 'appmeta', grupo: 'ferramentas', nome: 'App da Meta', desc: 'Libera o Instagram e o Messenger. Você cola o ID e a chave do app uma vez e vale para o sistema inteiro.',
+  },
+  {
     // Shopify: não vira caixa do Chatwoot. As chaves ficam no servidor (06_BACKEND/atendimento/rotas/shopify.mjs).
     id: 'shopify', grupo: 'ferramentas', nome: 'Shopify', desc: 'A IA acha o pedido da cliente pelo CPF, pelo e-mail ou pelo WhatsApp da compra e responde status e rastreio.',
   },
@@ -95,6 +97,7 @@ const INTEGRACOES = [
 const INTEG_ICO = {
   comentarios: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   shopify: '<path d="M6 7h12l-1 13H7z"/><path d="M9 7a3 3 0 0 1 6 0"/>',
+  appmeta: '<path d="M3 15c0-5 2.5-9 5-9 3 0 5 9 8 9 2 0 3-2 3-4 0-3-1.5-5-3-5-2.5 0-4.5 5-7 9-1 1.5-2 2-3 2-1.5 0-3-1-3-2z"/>',
   ia: BRILHO,
 };
 const integIco = i => ico(CANAIS[i.id]?.svg || INTEG_ICO[i.id]);
@@ -107,6 +110,10 @@ function situacao(i) {
   if (i.id === 'comentarios') {
     if (!COMENT) return { cls: '', rot: 'Conferindo…' };
     return COMENT.conectado ? { cls: 'ligado', rot: 'Conectado' } : { cls: '', rot: 'Não conectado' };
+  }
+  if (i.id === 'appmeta') {
+    if (!APPMETA) return { cls: '', rot: 'Conferindo…' };
+    return APPMETA.instagram && APPMETA.facebook ? { cls: 'ligado', rot: 'Ligado' } : APPMETA.facebook ? { cls: 'espera', rot: 'Falta o Instagram' } : { cls: '', rot: 'Não ligado' };
   }
   if (i.id === 'shopify') {
     if (!LOJA) return { cls: '', rot: 'Conferindo…' };
@@ -123,6 +130,7 @@ function situacao(i) {
 function renderIntegracoes() {
   if (Date.now() - COMENT_T > 20000) carregarComent();
   if (Date.now() - LOJA_T > 20000) carregarLoja();
+  if (Date.now() - APPMETA_T > 20000) carregarAppMeta();
   prepararCaixasNovas();
   const card = i => {
     const s = situacao(i), cx = caixasDe(i.id);
@@ -131,6 +139,7 @@ function renderIntegracoes() {
       : !i.breve && i.id !== 'ia' && cx.length ? `<div class="contas">${cx.map(c => `<span>${esc(c.nome)}${c.tipo === 'Channel::Api' ? ' (teste)' : ''}</span>`).join('')}</div>` : '';
     const botao = i.id === 'comentarios' ? (COMENT?.conectado ? 'Ver ou desconectar' : 'Conectar')
       : i.id === 'shopify' ? (LOJA?.conectado ? 'Ver ou desconectar' : 'Conectar')
+      : i.id === 'appmeta' ? (APPMETA?.facebook ? 'Ver ou trocar' : 'Ligar')
       : i.id === 'ia' ? (IA_LIGADA ? 'Ver ou desligar' : 'Ligar a IA') : i.breve || i.precisaVps ? 'Ver o que falta' : s.cls === 'ligado' ? 'Conectar outra' : i.oauth === 'instagram' ? 'Entrar com o Instagram' : 'Conectar';
     return `<div class="card">
       <div class="card-top"><span class="card-ico">${integIco(i)}</span><div><h3>${i.nome}</h3><span class="estado ${s.cls}">${s.rot}</span></div></div>
@@ -220,6 +229,7 @@ document.addEventListener('click', e => {
   }
   if (el.dataset.integ === 'comentarios') abrirGavetaComent();
   else if (el.dataset.integ === 'shopify') abrirGavetaLoja();
+  else if (el.dataset.integ === 'appmeta') abrirGavetaAppMeta();
   else if (el.dataset.integ) abrirGaveta(el.dataset.integ);
   else if (el.dataset.fechar && (e.target === el || el.tagName === 'BUTTON')) fecharGaveta();
   else if (el.dataset.conectar) conectar(el.dataset.conectar, el);
@@ -364,6 +374,81 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id?.startsWith('mc-')) { e.preventDefault(); const b = document.querySelector('[data-mc="conectar"]'); if (b && !b.disabled) conectarComent(b); }
+});
+
+// ---------- App da Meta (Instagram e Messenger) ----------
+// A dona cola o ID e a chave do app; o servidor confere na Meta e grava no Chatwoot. As chaves nunca voltam para cá.
+let APPMETA = null, APPMETA_T = 0;
+async function carregarAppMeta() {
+  APPMETA_T = Date.now();
+  try { APPMETA = await chamar('/api/atendimento/canais/app-meta'); }
+  catch (e) { APPMETA = { facebook: false, instagram: false, erro: e.message }; }
+  const pg = $('#pag-integracoes');
+  if (pg && !pg.hidden) renderIntegracoes();
+}
+const APPMETA_CAMPOS = [
+  { id: 'app_id', rot: 'ID do app', ph: 'Ex.: 1234567890123456' },
+  { id: 'app_secret', rot: 'Chave secreta do app', ph: 'Configurações do app > Básico', tipo: 'password' },
+  { id: 'ig_app_id', rot: 'ID do app do Instagram', ph: 'Instagram > Configuração da API com login do Instagram' },
+  { id: 'ig_app_secret', rot: 'Chave secreta do app do Instagram', ph: 'mesma tela, ao lado do ID', tipo: 'password' },
+];
+function abrirGavetaAppMeta(modo) {
+  if (!APPMETA) { carregarAppMeta().then(() => abrirGavetaAppMeta(modo)); return; }
+  const a = APPMETA;
+  const linha = (rot, val) => `<div class="campo"><label>${rot}</label><div class="codigo"><pre>${esc(val)}</pre><button class="btn peq" data-copiar-txt="${esc(val)}">Copiar</button></div></div>`;
+  const montar = (t, corpo, rodape) => {
+    $('#gaveta').innerHTML = `<div class="fundo" data-fechar="1"><div class="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-titulo">
+      <div class="gaveta-head"><span class="card-ico">${ico(INTEG_ICO.appmeta)}</span><h2 id="g-titulo">${t}</h2><button class="btn icone fantasma" data-fechar="1" aria-label="Fechar">${ico('<path d="M6 6l12 12M18 6 6 18"/>')}</button></div>
+      <div class="gaveta-corpo">${corpo}</div><div class="gaveta-pe">${rodape}</div></div></div>`;
+  };
+  if (a.facebook && modo !== 'trocar') {
+    montar('App da Meta', `<div class="sucesso">O app ${esc(a.nome)} está no sistema${a.instagram ? ` e o do Instagram (${esc(a.nome_ig)}) também` : ''}. Falta só colar estes endereços no painel da Meta, uma vez.</div>
+      <ol class="passos">
+        <li><span><b>Messenger:</b> em developers.facebook.com, no app, abra <b>Messenger &gt; Configurações da API</b>. Em Webhooks, cole o endereço e o token abaixo, clique em <b>Verificar e salvar</b> e marque <b>messages, messaging_postbacks, message_deliveries, message_reads e messaging_echoes</b>.</span></li>
+        <li><span><b>Instagram:</b> em <b>Instagram &gt; Configuração da API com login do Instagram</b>, na parte de Webhooks, cole o endereço do Instagram e o mesmo token, e marque <b>messages, message_reactions e messaging_seen</b>. Em <b>Configurar login comercial do Instagram</b>, cole o endereço de retorno.</span></li>
+        <li><span><b>Login do Facebook:</b> em <b>Configurações do app &gt; Básico</b>, ponha <b>${esc(a.dominio)}</b> em Domínios do app.</span></li>
+        <li><span>Pronto: volte nos cards do Instagram e do Messenger e clique para conectar.</span></li></ol>
+      ${linha('Endereço do webhook do Messenger', a.messenger_webhook)}
+      ${linha('Endereço do webhook do Instagram', a.instagram_webhook)}
+      ${linha('Endereço de retorno do Instagram', a.instagram_retorno)}
+      ${linha('Token de verificação (o mesmo nos dois)', a.verificacao)}
+      ${a.publica ? '' : '<div class="nota-box">O sistema ainda não tem endereço público. Esses endereços só funcionam com ele no ar.</div>'}
+      <div id="g-erro"></div>`,
+      '<button class="btn fantasma" data-fechar="1">Fechar</button><button class="btn" data-appmeta="trocar">Trocar as chaves</button>');
+    return;
+  }
+  const campos = APPMETA_CAMPOS.map(c => `<div class="campo"><label for="am-${c.id}">${c.rot}</label>
+    <input id="am-${c.id}" type="${c.tipo || 'text'}" placeholder="${esc(c.ph)}" autocomplete="${c.tipo === 'password' ? 'new-password' : 'off'}" spellcheck="false"></div>`).join('');
+  montar(modo === 'trocar' ? 'Trocar as chaves do app' : 'Ligar o App da Meta', `
+    <p class="desc">É o mesmo app da Meta onde está a API do WhatsApp. Você faz isso uma vez e vale para o sistema inteiro, em qualquer computador.</p>
+    <ol class="passos">
+      <li><span>Em <b>developers.facebook.com/apps</b>, abra o app da marca e vá em <b>Configurações do app &gt; Básico</b>. Copie o <b>ID do app</b> e a <b>Chave secreta do app</b> (clique em Mostrar).</span></li>
+      <li><span>Se o app ainda não tem o Instagram, clique em <b>Adicionar produto &gt; Instagram</b>. Na tela <b>Configuração da API com login do Instagram</b>, copie o <b>ID do app do Instagram</b> e a <b>chave secreta</b> dele.</span></li>
+      <li><span>Cole os quatro abaixo e clique em <b>Ligar</b>. O sistema confere na Meta e mostra os endereços para colar lá.</span></li></ol>
+    ${campos}<div id="g-erro"></div>`,
+    '<button class="btn fantasma" data-fechar="1">Cancelar</button><button class="btn prim" data-appmeta="salvar">Ligar</button>');
+  $('#am-app_id')?.focus();
+}
+async function salvarAppMeta(botao) {
+  const v = {};
+  for (const c of APPMETA_CAMPOS) v[c.id] = ($(`#am-${c.id}`)?.value || '').trim();
+  if (!v.app_id || !v.app_secret) { $('#g-erro').innerHTML = '<div class="erro">Preencha o ID do app e a chave secreta do app.</div>'; return; }
+  botao.disabled = true; botao.textContent = 'Conferindo na Meta…';
+  $('#g-erro').innerHTML = '';
+  try {
+    APPMETA = await chamar('/api/atendimento/canais/app-meta', 'POST', v); APPMETA_T = Date.now();
+    renderIntegracoes(); abrirGavetaAppMeta(); toast('App da Meta ligado.');
+  } catch (err) {
+    botao.disabled = false; botao.textContent = 'Ligar';
+    $('#g-erro').innerHTML = `<div class="erro">Não ligou: ${esc(err.message)}</div>`;
+  }
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-appmeta],[data-copiar-txt]');
+  if (!el) return;
+  if (el.dataset.copiarTxt !== undefined) { navigator.clipboard.writeText(el.dataset.copiarTxt).then(() => toast('Copiado.'), () => toast('Não deu para copiar. Selecione e copie.')); return; }
+  if (el.dataset.appmeta === 'salvar') salvarAppMeta(el);
+  else if (el.dataset.appmeta === 'trocar') abrirGavetaAppMeta('trocar');
 });
 
 // ---------- Shopify ----------
