@@ -15,8 +15,9 @@ const INTEGRACOES = [
     campos: [
       { id: 'token', rot: 'Token da API do WhatsApp', ph: 'EAAG…', tipo: 'password' },
       { id: 'numero', rot: 'Número do WhatsApp', ph: '+55 81 99999-9999', opcional: 'pode deixar vazio se o token tiver um número só' },
+      { id: 'conta', rot: 'ID da conta do WhatsApp Business', ph: 'só se o sistema não achar sozinho', opcional: 'WhatsApp > Configuração da API, abaixo do número' },
     ],
-    rota: '/canais/whatsapp', corpo: v => ({ token: v.token, numero: v.numero }),
+    rota: '/canais/whatsapp', corpo: v => ({ token: v.token, numero: v.numero, conta: v.conta }),
     aviso: 'As conversas antigas não vêm: a Meta não entrega o histórico pela API. A partir da conexão, toda mensagem nova cai aqui. Se o número continuar ligado na Seeyu, as mensagens podem chegar nos dois sistemas.',
   },
   {

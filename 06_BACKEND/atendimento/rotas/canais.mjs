@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const MARCAS = { rosa: 'Rosa Selvagem', beyoung: 'Beyoung' };
 const GRAPH = 'https://graph.facebook.com/v22.0';
@@ -57,34 +58,59 @@ async function conferirApp(id, segredo) {
 }
 
 const claro = msg => Object.assign(new Error(msg), { claro: true }); // mensagem já em português, sem tradução
-async function acharWhatsApp(tk, numero) {
-  try { await graph('me?fields=id', tk); }
+async function acharWhatsApp(tk, numero, conta) {
+  let eu;
+  try { eu = await graph('me?fields=id,name', tk); }
   catch (e) { throw claro(/expired|session has expired/i.test(e.message) ? 'Esse token já venceu. Gere um token permanente (de usuário do sistema) e cole de novo.' : 'A Meta não aceitou o token. Copie de novo, inteiro.'); }
-  const wabas = new Set();
-  try {
-    const d = await graph(`debug_token?input_token=${encodeURIComponent(tk)}`, tk);
-    for (const g of d.data?.granular_scopes || []) if (/^whatsapp_business_(management|messaging)$/.test(g.scope)) (g.target_ids || []).forEach(id => wabas.add(id));
-  } catch { /* segue para o outro jeito */ }
-  if (!wabas.size) {
-    try {
-      const emp = await graph('me/businesses?fields=id&limit=50', tk);
-      for (const b of emp.data || []) for (const tipo of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
-        const l = await graph(`${b.id}/${tipo}?fields=id&limit=50`, tk).catch(() => ({}));
-        (l.data || []).forEach(w => wabas.add(w.id));
-      }
-    } catch { /* sem permissão de empresa */ }
+  const wabas = new Set(), pista = { tipo: '', permissoes: [], tentativas: [] };
+  const tentar = async (nome, fn) => { try { const n = wabas.size; await fn(); pista.tentativas.push(`${nome}: ${wabas.size - n}`); } catch (e) { pista.tentativas.push(`${nome}: ${String(e.message).slice(0, 90)}`); } };
+  // 1) o ID da conta, se ela colou (ou se o "número" é na verdade o ID da conta)
+  for (const id of [soDigitos(conta), soDigitos(numero)].filter(x => x.length >= 14)) {
+    await tentar(`id ${id}`, async () => { const l = await graph(`${id}/phone_numbers?fields=id&limit=1`, tk); if (l.data) wabas.add(id); });
   }
-  if (!wabas.size) throw claro('Não achei nenhuma conta do WhatsApp Business nesse token. Gere o token com as permissões whatsapp_business_management e whatsapp_business_messaging.');
+  // 2) as contas que o token enxerga
+  await tentar('debug_token', async () => {
+    const d = await graph(`debug_token?input_token=${encodeURIComponent(tk)}`, tk);
+    pista.tipo = d.data?.type || '';
+    pista.permissoes = d.data?.scopes || [];
+    for (const g of d.data?.granular_scopes || []) if (/^whatsapp_business_(management|messaging)$/.test(g.scope)) (g.target_ids || []).forEach(id => wabas.add(id));
+  });
+  if (!pista.permissoes.length) await tentar('permissoes', async () => { const p = await graph('me/permissions', tk); pista.permissoes = (p.data || []).filter(x => x.status === 'granted').map(x => x.permission); });
+  // 3) usuário do sistema: contas atribuídas a ele
+  if (!wabas.size) await tentar('atribuidas', async () => { const l = await graph(`${eu.id}/assigned_whatsapp_business_accounts?fields=id&limit=50`, tk); (l.data || []).forEach(w => wabas.add(w.id)); });
+  // 4) as empresas do token (precisa de business_management)
+  if (!wabas.size) await tentar('empresas', async () => {
+    const emp = await graph('me/businesses?fields=id&limit=50', tk);
+    for (const b of emp.data || []) for (const tipo of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+      const l = await graph(`${b.id}/${tipo}?fields=id&limit=50`, tk).catch(() => ({}));
+      (l.data || []).forEach(w => wabas.add(w.id));
+    }
+  });
+  if (!wabas.size) {
+    registrar({ etapa: 'whatsapp-sem-conta', tipo: pista.tipo, permissoes: pista.permissoes, tentativas: pista.tentativas });
+    const faltaPerm = ['whatsapp_business_management', 'whatsapp_business_messaging'].filter(x => pista.permissoes.length && !pista.permissoes.includes(x));
+    throw claro(faltaPerm.length
+      ? `O token não tem a permissão ${faltaPerm.join(' e ')}. Gere o token de novo marcando ${faltaPerm.join(' e ')}.`
+      : 'A Meta não disse a qual conta do WhatsApp esse token pertence. Cole também o "ID da conta do WhatsApp Business": em developers.facebook.com, no app, WhatsApp > Configuração da API, logo abaixo do número.');
+  }
   const todos = [];
   for (const waba of wabas) {
     const l = await graph(`${waba}/phone_numbers?fields=id,display_phone_number,verified_name&limit=50`, tk).catch(() => ({}));
     for (const n of l.data || []) todos.push({ waba, id: n.id, numero: n.display_phone_number, nome: n.verified_name });
   }
-  const alvo = soDigitos(numero);
+  const alvo = soDigitos(numero).length >= 14 && wabas.has(soDigitos(numero)) ? '' : soDigitos(numero);
   const achado = alvo ? todos.find(n => n.id === alvo || mesmoNumero(n.numero, alvo)) : todos.length === 1 ? todos[0] : null;
   if (achado) return achado;
   if (!todos.length) throw claro('A conta do WhatsApp Business desse token não tem nenhum número cadastrado.');
   throw claro(`${alvo ? 'Esse número não está nesse token.' : 'Esse token tem mais de um número.'} Números que ele enxerga: ${todos.map(n => `${n.numero}${n.nome ? ` (${n.nome})` : ''}`).join(', ')}.`);
+}
+// registro sem token, para entender o que a Meta respondeu
+function registrar(o) {
+  try {
+    const f = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../07_LOGS/atendimento/canais.jsonl');
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.appendFileSync(f, JSON.stringify({ ts: new Date().toISOString(), ...o }) + '\n');
+  } catch { /* só registro */ }
 }
 
 // as mensagens de erro do Chatwoot e da Meta vêm em inglês: traduz as comuns
@@ -132,7 +158,7 @@ export default async function ({ p, m, req, res, s, c, cw, lerCorpo, responder, 
       if (tk.length < 30) { responder(res, 400, { erro: 'Cole o token de acesso inteiro.' }); return true; }
       let waba = soDigitos(b.waba_id), fone = soDigitos(b.phone_number_id);
       if (!waba || !fone) {
-        const n = await acharWhatsApp(tk, b.numero || b.phone_number_id);
+        const n = await acharWhatsApp(tk, b.numero || b.phone_number_id, b.conta || b.waba_id);
         waba = n.waba; fone = n.id;
       }
       // o Chatwoot confere tudo na Meta, cria a caixa e inscreve o app para receber as mensagens (webhook)
