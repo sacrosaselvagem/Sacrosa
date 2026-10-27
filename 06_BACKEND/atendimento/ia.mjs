@@ -9,6 +9,7 @@
 // são barradas pela trava e viram escalação.
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { extrairIdentificacao, localizarPedido, localizarPorChave, atualizarPedido, paraPrompt, paraCard, cfgShopify } from './pedidos.mjs';
@@ -216,21 +217,31 @@ function registrarCusto(usd) {
 
 // ---------- Claude ----------
 // imagens: [{ media_type, data(base64) }]. Com foto, a conversa vai pelo stdin em stream-json (texto + blocos de imagem).
+// O prompt vai por arquivo: com a base e os aprendizados crescendo, ele não cabe mais na linha de comando do Windows
+// (dava "spawn ENAMETOOLONG" e a cliente ficava sem resposta).
+export function arquivoDePrompt(sistema) {
+  const f = path.join(os.tmpdir(), `rs-prompt-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.md`);
+  fs.writeFileSync(f, sistema);
+  return { arg: ['--system-prompt-file', f], apagar: () => fs.rm(f, { force: true }, () => {}) };
+}
+
 export function perguntarClaude(sistema, conversa, modelo, schema = SCHEMA, imagens = []) {
   const comFoto = imagens.length > 0;
   return new Promise((ok, falha) => {
+    const prompt = arquivoDePrompt(sistema);
     const args = ['-p', '--model', modelo, '--output-format', comFoto ? 'stream-json' : 'json', ...(comFoto ? ['--input-format', 'stream-json', '--verbose'] : []),
       '--json-schema', JSON.stringify(schema),
-      '--system-prompt', sistema, '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', ''];
+      ...prompt.arg, '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', ''];
     const p = spawn(CLAUDE, args, { windowsHide: true });
     let out = '', err = '';
     const seg = comFoto ? 120 : 90;
     const limite = setTimeout(() => { p.kill(); falha(new Error(`o Claude passou de ${seg} s`)); }, seg * 1000);
     p.stdout.on('data', d => { out += d; });
     p.stderr.on('data', d => { err += d; });
-    p.on('error', e => { clearTimeout(limite); falha(e); });
+    p.on('error', e => { clearTimeout(limite); prompt.apagar(); falha(e); });
     p.on('close', codigo => {
       clearTimeout(limite);
+      prompt.apagar();
       try {
         const j = comFoto
           ? out.split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).find(x => x?.type === 'result') || {}

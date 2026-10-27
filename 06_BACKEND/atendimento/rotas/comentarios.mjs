@@ -21,6 +21,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { arquivoDePrompt } from '../ia.mjs';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(AQUI, '../../..');
@@ -111,16 +112,18 @@ function palavraProibida(texto, palavras) {
 // ---------- Claude (mesmo jeito do ia.mjs: claude.exe com --json-schema, sem ferramentas) ----------
 function perguntarClaude(sistema, entrada, schema, modelo) {
   return new Promise((ok, falha) => {
+    const prompt = arquivoDePrompt(sistema); // por arquivo: o prompt não cabe na linha de comando do Windows
     const args = ['-p', '--model', modelo, '--output-format', 'json', '--json-schema', JSON.stringify(schema),
-      '--system-prompt', sistema, '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', ''];
+      ...prompt.arg, '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', ''];
     const p = spawn(CLAUDE, args, { windowsHide: true });
     let out = '', err = '';
     const limite = setTimeout(() => { p.kill(); falha(new Error('A IA demorou demais. Tente de novo.')); }, 90000);
     p.stdout.on('data', d => { out += d; });
     p.stderr.on('data', d => { err += d; });
-    p.on('error', e => { clearTimeout(limite); falha(e); });
+    p.on('error', e => { clearTimeout(limite); prompt.apagar(); falha(e); });
     p.on('close', codigo => {
       clearTimeout(limite);
+      prompt.apagar();
       try {
         const j = JSON.parse(out);
         if (j.is_error || !j.structured_output) throw new Error(j.result || 'sem resposta estruturada');

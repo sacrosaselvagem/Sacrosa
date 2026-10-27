@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { arquivoDePrompt } from '../ia.mjs';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const CEREBRO = process.env.RS_CEREBRO || 'C:/Users/Cncept D/Documents/Native Agents/Native Agemts/Rosa Selvagem - Cérebro';
@@ -55,16 +56,18 @@ function secao(texto, titulo) {
 
 function perguntar(sistema, mensagem) {
   return new Promise((ok, falha) => {
+    const prompt = arquivoDePrompt(sistema); // por arquivo: o prompt não cabe na linha de comando do Windows
     const args = ['-p', '--model', 'opus', '--output-format', 'json', '--json-schema', JSON.stringify(SCHEMA),
-      '--system-prompt', sistema, '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', ''];
+      ...prompt.arg, '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', ''];
     const p = spawn(CLAUDE, args, { windowsHide: true });
     let out = '', err = '';
     const limite = setTimeout(() => { p.kill(); falha(new Error('a Rosa demorou demais para responder. Tente de novo.')); }, 90000);
     p.stdout.on('data', d => { out += d; });
     p.stderr.on('data', d => { err += d; });
-    p.on('error', e => { clearTimeout(limite); falha(e); });
+    p.on('error', e => { clearTimeout(limite); prompt.apagar(); falha(e); });
     p.on('close', () => {
       clearTimeout(limite);
+      prompt.apagar();
       try {
         const j = JSON.parse(out);
         if (j.is_error || !j.structured_output) throw new Error(j.result || 'sem resposta');
