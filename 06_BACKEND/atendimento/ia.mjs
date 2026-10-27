@@ -475,7 +475,11 @@ export function iniciarIA({ cfg, cw }) {
       const fotosTxt = midia.imagens.length ? `\n\nAs ${midia.imagens.length === 1 ? 'foto que a cliente mandou está anexada' : `${midia.imagens.length} fotos que a cliente mandou estão anexadas, na ordem da conversa`}. Olhe com atenção antes de responder.` : '';
       // memória da cliente (classificador.mjs): o que já se sabe dela de conversas anteriores
       const memoria = c.meta?.sender?.custom_attributes?.memoria_ia;
-      const conversa = `Nome da cliente: ${cliente}\nCanal: ${nomeCanal[canal]}\n${memoria ? `O que já sabemos desta cliente (de conversas anteriores; use com naturalidade, sem dizer que "anotou"): ${memoria}\n` : ''}\nConversa (da mais antiga para a mais nova):\n${linhas.join('\n')}${fotosTxt}\n\nResponda à última mensagem da cliente.`;
+      // já chamou a equipe e ninguém assumiu ainda: a IA continua atendendo (só para quando uma pessoa assume)
+      const esperando = c.custom_attributes?.aguardando_equipe
+        ? `\n\n(Você já avisou a equipe nesta conversa: "${c.custom_attributes.motivo_ia || 'precisa de alguém da equipe'}". Ninguém assumiu ainda, então continue atendendo a cliente normalmente: responda, tire dúvidas, peça o que a equipe vai precisar (número do pedido, fotos, dados), acalme. Não repita que vai chamar alguém; se ela perguntar, diga que a equipe já foi avisada e que você segue com ela enquanto isso. Se surgir algo novo que também precise da equipe, use "escalar" de novo.)`
+        : '';
+      const conversa = `Nome da cliente: ${cliente}\nCanal: ${nomeCanal[canal]}\n${memoria ? `O que já sabemos desta cliente (de conversas anteriores; use com naturalidade, sem dizer que "anotou"): ${memoria}\n` : ''}\nConversa (da mais antiga para a mais nova):\n${linhas.join('\n')}${fotosTxt}${esperando}\n\nResponda à última mensagem da cliente.`;
       const ditos = msgs.filter(m => m.message_type === 0).flatMap(m => [m.content, ...(m.attachments || []).filter(a => a.file_type === 'audio').map(a => midia.textos.get(a.id)?.replace('[áudio transcrito] ', ''))]).filter(Boolean);
       const ped = await contextoPedido(c.custom_attributes || {}, ditos, canal === 'whatsapp' ? c.meta?.sender?.phone_number || '' : '');
       const r = await perguntarClaude(montarPrompt({ marca, canal: nomeCanal[canal], conversa, pedido: ped.texto }), conversa, cfg().ia?.modelo || 'opus', SCHEMA, midia.imagens);
@@ -506,6 +510,7 @@ export function iniciarIA({ cfg, cw }) {
         attrs.sugestao_ia = acao === 'escalar-barrado' ? textos.join('\n\n') : (r.sugestao_equipe || '');
         attrs.sugestao_fonte = acao === 'escalar-barrado' ? motivo : 'Base de conhecimento do SAC';
         if (!attrs.sugestao_ia) { delete attrs.sugestao_ia; delete attrs.sugestao_fonte; }
+        attrs.aguardando_equipe = attrs.aguardando_equipe || new Date().toISOString();
       }
       await cw(`conversations/${id}/custom_attributes`, { method: 'POST', body: { custom_attributes: attrs }, token: sistema() });
       const etiquetas = [...new Set([...(agora.labels || []), ...(r.assuntos || []), ...(acao.startsWith('escalar') ? [ETIQUETA_HUMANO] : [])])];
@@ -525,10 +530,12 @@ export function iniciarIA({ cfg, cw }) {
       let time = null;
       if (acao.startsWith('escalar')) {
         // vai para o time do assunto mais sério (Configurações > Geral > Para onde vai cada assunto)
+        // a IA NÃO para: a conversa segue com ela até uma pessoa assumir (responder ou pegar a conversa).
+        // Só na primeira vez manda o chamado e põe no time; depois só atualiza motivo, resumo e sugestão.
+        const jaChamou = !!agora.custom_attributes?.aguardando_equipe;
         time = timeDoAssunto(r.assuntos || []);
-        if (time) await cw(`conversations/${id}/assignments`, { method: 'POST', body: { team_id: time }, token: sistema() }).catch(e => log({ conversa: id, erro_time: e.message }));
-        await cw(`conversations/${id}/toggle_status`, { method: 'POST', body: { status: 'open' }, token: sistema() });
-        await chamarEquipe(id, attrs.motivo_ia, r.resumo);
+        if (time && !jaChamou) await cw(`conversations/${id}/assignments`, { method: 'POST', body: { team_id: time }, token: sistema() }).catch(e => log({ conversa: id, erro_time: e.message }));
+        if (!jaChamou) await chamarEquipe(id, attrs.motivo_ia, r.resumo);
       }
       if (r.pergunta_sem_resposta?.trim()) try { anotarPergunta(r.pergunta_sem_resposta.trim()); } catch { /* o Cérebro pode estar aberto no Obsidian */ }
 

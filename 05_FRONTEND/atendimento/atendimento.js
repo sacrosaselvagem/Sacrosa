@@ -295,7 +295,8 @@ const primeiroNome = c => c.cliente.split(' ')[0];
 function naFila(c, fila) {
   switch (fila) {
     case 'mim': return c.dono === EU && !c.resolvida;
-    case 'precisam': return !c.dono && !c.resolvida;
+    // inclui as que a IA chamou a equipe: ela segue respondendo até alguém assumir
+    case 'precisam': return (!c.dono || (c.dono === 'ia' && !!c.escalou)) && !c.resolvida;
     case 'naoatendidas': return !c.resolvida && c.dono !== 'ia' && ultima(c).de === 'cliente';
     case 'mencoes': return MENCOES.has(c.id);
     case 'ia': return c.dono === 'ia' && !c.resolvida;
@@ -728,7 +729,7 @@ function convDe(x, antiga) {
     insta: aa.social_profiles?.instagram ? `@${aa.social_profiles.instagram}` : null,
     time: x.meta?.team?.id || null,
     dono: x.status === 'pending' ? 'ia' : x.meta?.assignee ? `u${x.meta.assignee.id}` : null,
-    escalou: x.status === 'open' ? ca.motivo_ia || null : null,
+    escalou: x.status === 'open' || ca.aguardando_equipe ? ca.motivo_ia || (ca.aguardando_equipe ? 'Precisa de alguém da equipe' : null) : null,
     naoLidas: x.unread_count || 0, etiquetas: x.labels || [], resolvida: x.status === 'resolved',
     resumo: ca.resumo_ia || '', observacao: ca.observacao_ia || '', pedido: lerObjeto(s.custom_attributes?.ultimo_pedido),
     rascunho: ca.sugestao_ia ? { txt: ca.sugestao_ia, fonte: ca.sugestao_fonte || 'Base de conhecimento do SAC' } : null,
@@ -833,7 +834,7 @@ async function executar(real, demo, aviso) {
 }
 
 const semSugestao = attrs => { const a = { ...attrs }; delete a.sugestao_ia; delete a.sugestao_fonte; return a; };
-const semIA = attrs => { const a = semSugestao(attrs); delete a.motivo_ia; return a; };
+const semIA = attrs => { const a = semSugestao(attrs); delete a.motivo_ia; delete a.aguardando_equipe; return a; };
 const mudarStatus = (c, s) => cw(`conversations/${c.id}/toggle_status`, 'POST', { status: s });
 const atribuir = (c, id) => cw(`conversations/${c.id}/assignments`, 'POST', { assignee_id: id ? EQUIPE[id].cwId : 0 });
 const gravarAttrs = (c, attrs) => cw(`conversations/${c.id}/custom_attributes`, 'POST', { custom_attributes: attrs });
@@ -845,7 +846,7 @@ function passar(c, para) {
     if (para === 'ia') {
       await atribuir(c, null);
       await mudarStatus(c, 'pending');
-      if (c.attrs?.motivo_ia || c.attrs?.sugestao_ia) await gravarAttrs(c, semIA(c.attrs));
+      if (c.attrs?.motivo_ia || c.attrs?.sugestao_ia || c.attrs?.aguardando_equipe) await gravarAttrs(c, semIA(c.attrs));
       // voltou para a IA: sai da etiqueta de atendimento (ela põe de novo se escalar outra vez)
       if (c.etiquetas.includes(ETIQUETA_HUMANO)) await cw(`conversations/${c.id}/labels`, 'POST', { labels: c.etiquetas.filter(x => x !== ETIQUETA_HUMANO) });
     } else {
@@ -863,7 +864,7 @@ function passar(c, para) {
 function resolver(c) {
   const nome = primeiroNome(c);
   estado.menu = false; estado.aberta = null; vista('lista');
-  return executar(async () => { await mudarStatus(c, 'resolved'); if (c.attrs?.motivo_ia || c.attrs?.sugestao_ia) await gravarAttrs(c, semIA(c.attrs)); },
+  return executar(async () => { await mudarStatus(c, 'resolved'); if (c.attrs?.motivo_ia || c.attrs?.sugestao_ia || c.attrs?.aguardando_equipe) await gravarAttrs(c, semIA(c.attrs)); },
     () => { c.resolvida = true; c.escalou = null; c.naoLidas = 0; evento(c, `${pessoa(EU).nome} resolveu a conversa`); },
     `Conversa com ${nome} resolvida.`);
 }
